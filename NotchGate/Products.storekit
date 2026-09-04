@@ -1,0 +1,37 @@
+{
+  "identifier" : "Products",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "A1B2C3D4E5F64789A0B1C2D3E4F50617",
+      "localizations" : [
+        {
+          "description" : "One-time unlock for calendar, weather, advanced monitoring, and accent themes.",
+          "displayName" : "NotchGate Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.notchlens.pro",
+      "referenceName" : "NotchGate Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>NotchGate reads Music and Spotify so it can show what’s playing in the notch.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>NotchGate shows your next calendar event and upcoming agenda under the notch.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>NotchGate shows your next calendar event and upcoming agenda under the notch.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>NotchGate needs calendar access to show your upcoming events under the notch.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NotchGate uses your location to show local weather under the notch.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>NotchGate uses your location to show local weather under the notch.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>NotchGate uses your location to show local weather under the notch.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>NotchGate can list nearby Bluetooth accessories in the devices row.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>NotchGate can list nearby Bluetooth accessories in the devices row.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>NotchGate measures network throughput for the live upload and download meters.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>NotchGate captures your screen only when you take a screenshot from the notch.</string>
+</dict>
+</plist>

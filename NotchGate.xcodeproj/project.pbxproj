@@ -10,9 +10,23 @@
 		65F6F6783049265C00F23B73 /* NotchGate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotchGate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		65F6F6903049265C00F23B73 /* Exceptions for "NotchGate" folder in "NotchGate" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Products.storekit,
+			);
+			target = 65F6F6773049265C00F23B73 /* NotchGate */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		65F6F67A3049265C00F23B73 /* NotchGate */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				65F6F6903049265C00F23B73 /* Exceptions for "NotchGate" folder in "NotchGate" target */,
+			);
 			path = NotchGate;
 			sourceTree = "<group>";
 		};
@@ -248,14 +262,29 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = NotchGate/NotchGate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_FILE = NotchGate/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NotchGate reads Music and Spotify so it can show what’s playing in the notch.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "NotchGate can list nearby Bluetooth accessories in the devices row.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "NotchGate can list nearby Bluetooth accessories in the devices row.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "NotchGate needs calendar access to show your upcoming events under the notch.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © NotchLens. All rights reserved.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NotchGate measures network throughput for the live upload and download meters.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "NotchGate uses your location to show local weather under the notch.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "NotchGate uses your location to show local weather under the notch.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NotchGate uses your location to show local weather under the notch.";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "NotchGate captures your screen only when you take a screenshot from the notch.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -278,14 +307,29 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = NotchGate/NotchGate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_FILE = NotchGate/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NotchGate reads Music and Spotify so it can show what’s playing in the notch.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "NotchGate can list nearby Bluetooth accessories in the devices row.";
+				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "NotchGate can list nearby Bluetooth accessories in the devices row.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "NotchGate needs calendar access to show your upcoming events under the notch.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © NotchLens. All rights reserved.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "NotchGate measures network throughput for the live upload and download meters.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "NotchGate uses your location to show local weather under the notch.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "NotchGate uses your location to show local weather under the notch.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NotchGate uses your location to show local weather under the notch.";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "NotchGate captures your screen only when you take a screenshot from the notch.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
