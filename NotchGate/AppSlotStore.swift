@@ -21,11 +21,7 @@ struct PinnedApp: Codable, Equatable, Identifiable {
         let name = bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? resolved.deletingPathExtension().lastPathComponent
-        let bookmark = try? resolved.bookmarkData(
-            options: [.minimalBookmark],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
+        let bookmark = SecurityScoped.bookmark(for: resolved)
         return PinnedApp(
             displayName: name,
             bundleIdentifier: bundle?.bundleIdentifier,
@@ -34,18 +30,13 @@ struct PinnedApp: Codable, Equatable, Identifiable {
     }
 
     func resolvedURL() -> URL? {
-        if let bookmark {
-            var stale = false
-            if let url = try? URL(
-                resolvingBookmarkData: bookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &stale
-            ) {
-                let resolved = url.resolvedApplicationURL() ?? url
-                if FileManager.default.fileExists(atPath: resolved.path) {
-                    return resolved
-                }
+        if let bookmark, let url = SecurityScoped.resolve(bookmark) {
+            if let access = ScopedFileAccess(url: url) {
+                access.end()
+                return url
+            }
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
             }
         }
         if let bundleIdentifier,
@@ -55,9 +46,21 @@ struct PinnedApp: Codable, Equatable, Identifiable {
         return nil
     }
 
+    func withResolvedURL<R>(_ body: (URL) throws -> R) rethrows -> R? {
+        if let bookmark, let url = SecurityScoped.resolve(bookmark), let access = ScopedFileAccess(url: url) {
+            defer { access.end() }
+            return try body(access.url)
+        }
+        if let bundleIdentifier,
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            return try body(url)
+        }
+        return nil
+    }
+
     func icon() -> NSImage {
-        if let url = resolvedURL() {
-            return AppIconCache.image(for: url)
+        if let image = withResolvedURL({ AppIconCache.image(for: $0) }) {
+            return image
         }
         let fallback = NSImage(systemSymbolName: "app.fill", accessibilityDescription: displayName) ?? NSImage()
         fallback.size = NSSize(width: 64, height: 64)
@@ -71,17 +74,29 @@ struct PinnedApp: Codable, Equatable, Identifiable {
             running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
             return
         }
-        guard let url = resolvedURL(), FileManager.default.fileExists(atPath: url.path) else {
-            NSSound.beep()
+        if let bookmark, let url = SecurityScoped.resolve(bookmark), let access = ScopedFileAccess(url: url) {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: access.url, configuration: config) { _, error in
+                access.end()
+                if error != nil {
+                    DispatchQueue.main.async { NSSound.beep() }
+                }
+            }
             return
         }
-        let config = NSWorkspace.OpenConfiguration()
-        config.activates = true
-        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
-            if error != nil {
-                DispatchQueue.main.async { NSSound.beep() }
+        if let bundleIdentifier,
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
+                if error != nil {
+                    DispatchQueue.main.async { NSSound.beep() }
+                }
             }
+            return
         }
+        NSSound.beep()
     }
 
     func forceQuit() {
@@ -90,15 +105,14 @@ struct PinnedApp: Codable, Equatable, Identifiable {
     }
 
     func revealInFinder() {
-        guard let url = resolvedURL() else {
-            NSSound.beep()
-            return
+        let revealed = withResolvedURL { url in
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        if revealed == nil { NSSound.beep() }
     }
 
     var isInstalled: Bool {
-        resolvedURL().map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        withResolvedURL { FileManager.default.fileExists(atPath: $0.path) } ?? false
     }
 
     var isRunning: Bool { runningInstance() != nil }
@@ -259,21 +273,9 @@ final class AppSlotStore {
     }
 
     func sourceSlotIndex(from pasteboard: NSPasteboard? = nil) -> Int? {
+        _ = pasteboard
         if let draggingIndex, slots.indices.contains(draggingIndex) {
             return draggingIndex
-        }
-        let type = NSPasteboard.PasteboardType(Self.slotType)
-        let boards = [pasteboard, NSPasteboard(name: .drag)].compactMap { $0 }
-        for board in boards {
-            if let raw = board.string(forType: type)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               let value = Int(raw), slots.indices.contains(value) {
-                return value
-            }
-            if let data = board.data(forType: type),
-               let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               let value = Int(raw), slots.indices.contains(value) {
-                return value
-            }
         }
         return nil
     }
@@ -287,7 +289,7 @@ final class AppSlotStore {
     func chooseApp(for index: Int) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
-        panel.canChooseDirectories = true
+        panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.application, .applicationBundle]
         panel.treatsFilePackagesAsDirectories = false
@@ -348,6 +350,7 @@ final class AppSlotStore {
 
     func handleDragging(_ sender: NSDraggingInfo, onto index: Int) -> Bool {
         guard slots.indices.contains(index) else { return false }
+        guard canHandle(sender.draggingPasteboard) else { return false }
         if let source = sourceSlotIndex(from: sender.draggingPasteboard) {
             move(from: source, to: index)
             draggingIndex = nil
@@ -382,6 +385,11 @@ final class AppSlotStore {
             return true
         }
         return false
+    }
+
+    func canHandle(_ pasteboard: NSPasteboard) -> Bool {
+        sourceSlotIndex(from: pasteboard) != nil
+            || PasteboardApps.firstApplication(from: pasteboard) != nil
     }
 
     private func receiveEnumeratedURLs(_ sender: NSDraggingInfo, onto index: Int) -> Bool {
@@ -466,7 +474,7 @@ final class AppSlotStore {
             completion(Data("\(index)".utf8), nil)
             return nil
         }
-        if let url = slots[index]?.resolvedURL() {
+        if let url = slots[index]?.withResolvedURL({ $0 }) {
             provider.registerObject(url as NSURL, visibility: .all)
         }
         return provider
@@ -820,13 +828,9 @@ enum PasteboardApps {
 extension URL {
     func resolvedApplicationURL() -> URL? {
         var current = (self as NSURL).filePathURL ?? self
+        guard current.isFileURL else { return nil }
         current = current.standardizedFileURL.resolvingSymlinksInPath()
         if current.pathExtension.lowercased() == "app" { return current }
-        var walker = current
-        while walker.path != "/" {
-            if walker.pathExtension.lowercased() == "app" { return walker }
-            walker.deleteLastPathComponent()
-        }
         let values = try? current.resourceValues(forKeys: [.contentTypeKey, .isApplicationKey])
         if values?.isApplication == true || values?.contentType?.conforms(to: .application) == true {
             return current

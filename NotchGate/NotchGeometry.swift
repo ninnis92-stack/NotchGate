@@ -50,6 +50,15 @@ struct NotchGeometry: Equatable {
     static let cornerRadius: CGFloat = 16
     static let leftShoulderWidth: CGFloat = 124
     static let rightShoulderWidth: CGFloat = 62
+
+    /// Shoulder width scaled to this display's camera housing (14" vs 16" vs Air).
+    var leftShoulderWidth: CGFloat {
+        snap(max(108, min(160, notchWidth * 0.72)))
+    }
+
+    var rightShoulderWidth: CGFloat {
+        snap(max(56, min(92, notchWidth * 0.36)))
+    }
     /// Gap between glance content and the camera cutout so text cannot sit under it.
     static let shoulderNotchGutter: CGFloat = 10
     static let settingsGearSize: CGFloat = 22
@@ -60,7 +69,7 @@ struct NotchGeometry: Equatable {
     static let expandedHeight: CGFloat = 236
     static let panelWidth: CGFloat = 420
     /// Extra hit area while expanded so the pointer doesn't flicker off the edge.
-    static let expandedHoldPad: CGFloat = 2
+    static let expandedHoldPad: CGFloat = 6
 
     /// Bottom rounding for the collapsed island. Flush Full Screen uses a tighter
     /// radius so the overlay cannot visually drop into app content.
@@ -82,7 +91,7 @@ struct NotchGeometry: Equatable {
     var wideCollapsedSize: NSSize {
         NSSize(
             width: max(
-                notchWidth + Self.leftShoulderWidth + Self.rightShoulderWidth + Self.settingsReservedWidth,
+                notchWidth + leftShoulderWidth + rightShoulderWidth + Self.settingsReservedWidth,
                 280
             ),
             height: snap(notchHeight)
@@ -155,53 +164,83 @@ struct NotchGeometry: Equatable {
         frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let screen = preferredScreen()
         let frame = screen.frame
-        let left = screen.auxiliaryTopLeftArea
-        let right = screen.auxiliaryTopRightArea
+        let display = MacHardware.displayID(screen)
         let immersive = isImmersive(screen)
         let menuBarHidden = isMenuBarHidden(screen)
+        let scale = max(screen.backingScaleFactor, 1)
+        func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
 
-        if let left, let right {
+        if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
             let cutout = hardwareCutout(left: left, right: right, screen: screen)
             if cutout.width > 40, cutout.height > 8 {
-                return NotchGeometry(
-                    screenFrame: frame,
+                MacHardware.cutoutCache[display] = cutout
+                return make(
+                    screen: screen,
                     notchMinX: cutout.minX,
                     notchWidth: cutout.width,
                     notchHeight: cutout.height,
                     hasNotch: true,
-                    hidesCollapsedShoulders: hidesShoulders(on: screen),
-                    isImmersive: immersive,
-                    isMenuBarHidden: menuBarHidden,
-                    backingScale: screen.backingScaleFactor
+                    immersive: immersive,
+                    menuBarHidden: menuBarHidden
                 )
             }
         }
 
-        let inset = screen.safeAreaInsets.top
-        let scale = max(screen.backingScaleFactor, 1)
-        func snap(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
-        if inset > 8 {
-            let width: CGFloat = 180
-            return NotchGeometry(
-                screenFrame: frame,
-                notchMinX: snap(frame.midX - width / 2),
-                notchWidth: snap(width),
-                notchHeight: snap(inset),
+        if let cached = MacHardware.cutoutCache[display], cached.width > 40 {
+            let notchX = frameContainsCachedCutout(frame, cached)
+                ? snap(cached.minX)
+                : snap(frame.midX - cached.width / 2)
+            return make(
+                screen: screen,
+                notchMinX: notchX,
+                notchWidth: snap(cached.width),
+                notchHeight: snap(cached.height),
                 hasNotch: true,
-                hidesCollapsedShoulders: hidesShoulders(on: screen),
-                isImmersive: immersive,
-                isMenuBarHidden: menuBarHidden,
-                backingScale: screen.backingScaleFactor
+                immersive: immersive,
+                menuBarHidden: menuBarHidden
             )
         }
 
-        let width: CGFloat = 160
-        return NotchGeometry(
-            screenFrame: frame,
-            notchMinX: snap(frame.midX - width / 2),
-            notchWidth: snap(width),
-            notchHeight: snap(32),
+        let inset = screen.safeAreaInsets.top
+        let fallback = MacHardware.fallbackNotch(on: screen)
+        if inset > 8 || (MacHardware.isLaptop && MacHardware.isBuiltIn(screen)) {
+            return make(
+                screen: screen,
+                notchMinX: snap(frame.midX - fallback.width / 2),
+                notchWidth: fallback.width,
+                notchHeight: snap(max(inset, fallback.height)),
+                hasNotch: inset > 8 || MacHardware.isLaptop,
+                immersive: immersive,
+                menuBarHidden: menuBarHidden
+            )
+        }
+
+        return make(
+            screen: screen,
+            notchMinX: snap(frame.midX - fallback.width / 2),
+            notchWidth: fallback.width,
+            notchHeight: fallback.height,
             hasNotch: false,
+            immersive: immersive,
+            menuBarHidden: menuBarHidden
+        )
+    }
+
+    private static func make(
+        screen: NSScreen,
+        notchMinX: CGFloat,
+        notchWidth: CGFloat,
+        notchHeight: CGFloat,
+        hasNotch: Bool,
+        immersive: Bool,
+        menuBarHidden: Bool
+    ) -> NotchGeometry {
+        NotchGeometry(
+            screenFrame: screen.frame,
+            notchMinX: notchMinX,
+            notchWidth: notchWidth,
+            notchHeight: notchHeight,
+            hasNotch: hasNotch,
             hidesCollapsedShoulders: hidesShoulders(on: screen),
             isImmersive: immersive,
             isMenuBarHidden: menuBarHidden,
@@ -209,23 +248,24 @@ struct NotchGeometry: Equatable {
         )
     }
 
+    private static func frameContainsCachedCutout(_ frame: NSRect, _ cutout: NSRect) -> Bool {
+        cutout.minX >= frame.minX - 2 && cutout.maxX <= frame.maxX + 2
+    }
+
+    /// Follow the display under the pointer so a laptop + external setup
+    /// sizes the island for that screen's camera (or a centered fake island).
     private static func preferredScreen() -> NSScreen {
         let mouse = NSEvent.mouseLocation
-        if NotchCustomization.shared.alwaysShowInFullScreen,
-           let immersive = NSScreen.screens.first(where: { $0.frame.contains(mouse) && (isImmersive($0) || isMenuBarHidden($0)) }) {
-            return immersive
-        }
-        if let underMouse = NSScreen.screens.first(where: { $0.frame.contains(mouse) }), hasCutout(underMouse) {
+        if let underMouse = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) {
             return underMouse
         }
-        if let builtIn = NSScreen.screens.first(where: { hasCutout($0) && CGDisplayIsBuiltin(displayID($0)) != 0 }) {
+        if let builtIn = NSScreen.screens.first(where: { MacHardware.isBuiltIn($0) && hasCutout($0) }) {
             return builtIn
         }
         if let notched = NSScreen.screens.first(where: hasCutout) {
             return notched
         }
-        return NSScreen.screens.first(where: { $0.frame.contains(mouse) })
-            ?? NSScreen.main
+        return NSScreen.main
             ?? NSScreen.screens.first
             ?? NSScreen.screens.first!
     }

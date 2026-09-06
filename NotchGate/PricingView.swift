@@ -22,7 +22,7 @@ struct PricingView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("NotchGate Pro")
                 .font(.system(size: 26, weight: .bold, design: .rounded))
-            Text("A one-time unlock for calendar, weather, battery/disk meters, and themes. No subscription.")
+            Text("A one-time unlock for calendar, weather, live network, per-app load, devices, disk and battery meters, and accent themes. No subscription.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -48,11 +48,13 @@ struct PricingView: View {
 
             row("Notch overlay", free: true, pro: true)
             row("CPU & memory", free: true, pro: true)
-            row("4 app slots", free: true, pro: true)
+            row("Apps and search", free: true, pro: true)
             row("Now Playing", free: true, pro: true)
-            row("Calendar", free: false, pro: true)
-            row("Weather", free: false, pro: true)
-            row("Network & process meters", free: false, pro: true)
+            row("Pomodoro timer", free: true, pro: true)
+            row("Volume & brightness HUDs", free: true, pro: true)
+            row("Calendar & weather", free: false, pro: true)
+            row("Network, apps & devices", free: false, pro: true)
+            row("Disk & battery meters", free: false, pro: true)
             row("Custom themes", free: false, pro: true)
         }
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -111,7 +113,7 @@ struct PricingView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text("Product ID \(LicenseManager.productID). Create the same non-consumable IAP in App Store Connect, then sign the Mac app with a paid Apple Developer team.")
+            Text("One-time purchase handled securely by the Mac App Store.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

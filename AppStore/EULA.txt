@@ -1,0 +1,23 @@
+NOTCHGATE END USER LICENSE AGREEMENT
+
+This is a custom license for NotchGate, a Mac app from NotchLens. If you prefer, you may use Apple’s standard EULA in App Store Connect instead of this file.
+
+1. LICENSE
+NotchGate is licensed, not sold. Paid Apple Developer Program distribution and the Mac App Store grant you a personal, non-exclusive, non-transferable license to use NotchGate on Apple-branded Macs you own or control, as allowed by the Apple Media Services Terms.
+
+2. FREE AND PRO
+The Free features work without purchase. NotchGate Pro is a one-time non-consumable In-App Purchase (product ID com.notchlens.pro). There is no subscription. Restoring purchases on the same Apple Account re-enables Pro.
+
+3. RESTRICTIONS
+You may not reverse engineer, redistribute, or rent the app except as allowed by law. You may not use NotchGate to violate other apps’ terms.
+
+4. DATA
+The app processes calendar, location, and media information as described in the Privacy Policy. NotchLens does not operate a NotchGate cloud account.
+
+5. DISCLAIMER
+The app is provided “as is.” Overlay behavior can vary by macOS version, Full Screen apps, and display hardware. NotchLens is not liable for lost data or interruption beyond what applicable law requires.
+
+6. CONTACT
+Support: the URL listed on the App Store product page.
+
+Copyright © 2026 NotchLens. All rights reserved.

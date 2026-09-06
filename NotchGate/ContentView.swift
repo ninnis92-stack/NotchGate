@@ -25,10 +25,15 @@ struct ContentView: View {
             collapsedBar
             if state.isExpanded {
                 expandedBody
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: -18)),
+                            removal: .opacity.combined(with: .offset(y: -10))
+                        )
+                    )
             }
         }
-        .animation(.snappy(duration: 0.12), value: state.isExpanded)
+        .animation(NotchAnimationManager.shared.expandAnimation, value: state.isExpanded)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             NotchBackdrop(
@@ -40,12 +45,28 @@ struct ContentView: View {
         .ignoresSafeArea(edges: .all)
         .environment(\.controlActiveState, .key)
         .onChange(of: license.isPro) { _, isPro in
-            if isPro { startOptionalServices() }
+            if isPro {
+                startOptionalServices()
+            } else {
+                calendar.stop()
+                weather.stop()
+            }
         }
-        .onChange(of: layout.showCalendar) { _, _ in
-            startOptionalServices()
+        .onChange(of: layout.showCalendar) { _, enabled in
+            if enabled {
+                startOptionalServices()
+            } else {
+                calendar.stop()
+            }
         }
-        .onChange(of: layout.showWeather) { _, _ in
+        .onChange(of: layout.showWeather) { _, enabled in
+            if enabled {
+                startOptionalServices()
+            } else {
+                weather.stop()
+            }
+        }
+        .onAppear {
             startOptionalServices()
         }
     }
@@ -194,20 +215,6 @@ struct ContentView: View {
                 }
                 .frame(height: 32)
             }
-
-            if layout.showScreenshots {
-                FlyoutAnchor(kind: .screenshot, controller: flyout) {
-                    ScreenshotWidget(manager: ScreenshotManager.shared, accent: accent)
-                }
-                .frame(height: 32)
-            }
-
-            if layout.showSearch {
-                FlyoutAnchor(kind: .search, controller: flyout) {
-                    SearchWidget(service: SearchService.shared, accent: accent)
-                }
-                .frame(height: 32)
-            }
         }
         .padding(.horizontal, 14)
         .padding(.top, 2)
@@ -245,8 +252,14 @@ struct ContentView: View {
                 StatusStrip(stats: stats, compact: true)
             }
         case .network:
-            FlyoutAnchor(kind: .network, controller: flyout) {
-                NetworkChip(stats: stats)
+            if license.isPro {
+                FlyoutAnchor(kind: .network, controller: flyout) {
+                    NetworkChip(stats: stats)
+                }
+            } else {
+                FlyoutAnchor(kind: .load, controller: flyout) {
+                    SystemLoadChip(cpu: stats.cpuUsage, memory: stats.memoryUsage, tint: accent, cpuHistory: stats.cpuHistory, memoryHistory: stats.memoryHistory)
+                }
             }
         case .pomodoro:
             Button {
@@ -263,11 +276,25 @@ struct ContentView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(pomodoro.justFinished ? Color(red: 0.45, green: 0.92, blue: 0.62) : .white)
+                .animation(NotchAnimationManager.shared.fadeAnimation, value: pomodoro.justFinished)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(HoverScaleButtonStyle(hover: 1.05))
             .opacity(layout.showPomodoro ? 1 : 0)
             .disabled(!layout.showPomodoro)
+        case .search:
+            Button {
+                SearchService.shared.start()
+                SearchService.shared.open()
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .help("Search")
+            }
+            .buttonStyle(HoverScaleButtonStyle(hover: 1.05))
         case .empty:
             Color.clear.frame(height: 1)
         }
@@ -297,12 +324,16 @@ struct ContentView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(1)
             } else {
-                Text(calendar.authorizationDenied ? "Calendar access needed" : "No upcoming events")
+                Text("Calendar")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                Text(calendar.authorizationDenied || calendar.authorizationNotDetermined ? "—" : "No events")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
         .lineLimit(1)
@@ -468,5 +499,6 @@ private struct NotchBackdrop: View {
     .environment(ThemeManager.shared)
     .environment(NotchCustomization.shared)
     .environment(PomodoroService.shared)
+    .environment(NotchAnimationManager.shared)
     .frame(width: 420, height: 236)
 }

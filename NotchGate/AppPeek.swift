@@ -1,9 +1,7 @@
 import AppKit
-import CoreGraphics
-import ScreenCaptureKit
 import SwiftUI
 
-/// Hover card for Preview mode. Never requests Screen Recording; captures only if already allowed.
+/// Hover card for Preview mode. Shows local app metadata without capturing window content.
 @MainActor
 final class AppPeekController {
     weak var notchPanel: NSPanel?
@@ -13,7 +11,6 @@ final class AppPeekController {
     private var app: PinnedApp?
     private var showWork: DispatchWorkItem?
     private let iconView = NSImageView()
-    private let thumbView = NSImageView()
     private let nameField = NSTextField(labelWithString: "")
     private let statusField = NSTextField(labelWithString: "")
     private let hintField = NSTextField(labelWithString: "Click the icon to open")
@@ -75,25 +72,17 @@ final class AppPeekController {
             return
         }
         self.app = app
-        display(app, snapshot: nil)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let snapshot = await AppWindowCapture.snapshot(for: app)
-            guard self.app?.bundleIdentifier == app.bundleIdentifier else { return }
-            self.display(app, snapshot: snapshot)
-        }
+        display(app)
     }
 
-    private func display(_ app: PinnedApp, snapshot: NSImage?) {
+    private func display(_ app: PinnedApp) {
         let panel = makePanel()
         iconView.image = app.icon()
         nameField.stringValue = app.displayName
         statusField.stringValue = app.isRunning ? "Running" : (app.isInstalled ? "Not running" : "Not installed")
-        thumbView.image = snapshot
-        thumbView.isHidden = snapshot == nil
-        panel.setFrame(frame(hasThumbnail: snapshot != nil), display: true)
+        panel.setFrame(frame(), display: true)
         panel.contentView?.frame = NSRect(origin: .zero, size: panel.frame.size)
-        layoutContent(hasThumbnail: snapshot != nil)
+        layoutContent()
         panel.orderFrontRegardless()
         UtilityWindows.keepAboveOverlay()
         onVisibilityChange?(true)
@@ -124,11 +113,6 @@ final class AppPeekController {
         root.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
 
         iconView.imageScaling = .scaleProportionallyUpOrDown
-        thumbView.imageScaling = .scaleProportionallyUpOrDown
-        thumbView.wantsLayer = true
-        thumbView.layer?.cornerRadius = 10
-        thumbView.layer?.cornerCurve = .continuous
-        thumbView.layer?.masksToBounds = true
 
         configureLabel(nameField, size: 13, weight: .semibold, alpha: 1)
         configureLabel(statusField, size: 11, weight: .medium, alpha: 0.55)
@@ -138,7 +122,6 @@ final class AppPeekController {
         root.addSubview(nameField)
         root.addSubview(statusField)
         root.addSubview(hintField)
-        root.addSubview(thumbView)
         panel.contentView = root
         self.panel = panel
         return panel
@@ -152,24 +135,18 @@ final class AppPeekController {
         field.lineBreakMode = .byTruncatingTail
     }
 
-    private func layoutContent(hasThumbnail: Bool) {
+    private func layoutContent() {
         guard let root = panel?.contentView else { return }
         let width = root.bounds.width
         let height = root.bounds.height
         iconView.frame = NSRect(x: 14, y: height - 54, width: 36, height: 36)
         nameField.frame = NSRect(x: 60, y: height - 36, width: width - 74, height: 18)
         statusField.frame = NSRect(x: 60, y: height - 54, width: width - 74, height: 16)
-        if hasThumbnail {
-            thumbView.frame = NSRect(x: 14, y: 28, width: width - 28, height: height - 90)
-            hintField.frame = NSRect(x: 14, y: 8, width: width - 28, height: 14)
-        } else {
-            thumbView.frame = .zero
-            hintField.frame = NSRect(x: 60, y: height - 72, width: width - 74, height: 14)
-        }
+        hintField.frame = NSRect(x: 60, y: height - 72, width: width - 74, height: 14)
     }
 
-    private func frame(hasThumbnail: Bool) -> NSRect {
-        let size = hasThumbnail ? NSSize(width: 320, height: 220) : NSSize(width: 280, height: 88)
+    private func frame() -> NSRect {
+        let size = NSSize(width: 280, height: 88)
         let notch = notchPanel?.frame ?? .zero
         return NSRect(
             x: notch.midX - size.width / 2,
@@ -177,37 +154,5 @@ final class AppPeekController {
             width: size.width,
             height: size.height
         )
-    }
-}
-
-enum AppWindowCapture {
-    static func snapshot(for app: PinnedApp) async -> NSImage? {
-        guard CGPreflightScreenCaptureAccess() else { return nil }
-        guard let pid = app.runningInstance()?.processIdentifier else { return nil }
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let windows = content.windows.filter { window in
-                window.owningApplication?.processID == pid
-                    && window.frame.width >= 80
-                    && window.frame.height >= 80
-                    && window.isOnScreen
-            }
-            guard let window = windows.max(by: { lhs, rhs in
-                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
-            }) else {
-                return nil
-            }
-            let filter = SCContentFilter(desktopIndependentWindow: window)
-            let config = SCStreamConfiguration()
-            let scale = min(1, 640 / max(window.frame.width, 1), 400 / max(window.frame.height, 1))
-            config.width = max(Int(window.frame.width * scale), 160)
-            config.height = max(Int(window.frame.height * scale), 100)
-            config.showsCursor = false
-            config.capturesAudio = false
-            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-            return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
-        } catch {
-            return nil
-        }
     }
 }

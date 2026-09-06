@@ -15,8 +15,6 @@ enum FlyoutKind: Equatable {
     case calendar
     case weather
     case status
-    case nowPlaying
-    case screenshot
     case search
 
     var size: NSSize {
@@ -30,8 +28,6 @@ enum FlyoutKind: Equatable {
         case .calendar: return NSSize(width: 360, height: 368)
         case .weather: return NSSize(width: 372, height: 312)
         case .status: return NSSize(width: 340, height: 168)
-        case .nowPlaying: return NSSize(width: 380, height: 312)
-        case .screenshot: return NSSize(width: 380, height: 320)
         case .search: return NSSize(width: 380, height: 340)
         }
     }
@@ -49,9 +45,16 @@ enum FlyoutKind: Equatable {
         case .calendar: return "Calendar"
         case .weather: return "Weather"
         case .status: return "Status"
-        case .nowPlaying: return "Now Playing"
-        case .screenshot: return "Screenshot"
         case .search: return "Search"
+        }
+    }
+
+    var requiresPro: Bool {
+        switch self {
+        case .battery, .disk, .network, .processes, .devices, .calendar, .weather:
+            return true
+        case .load, .cpu, .memory, .status, .search:
+            return false
         }
     }
 }
@@ -67,7 +70,6 @@ final class WidgetFlyoutController {
     var stats: SystemMonitor?
     var calendar: CalendarService?
     var weather: WeatherService?
-    var nowPlaying: NowPlayingService?
     var apps: AppSlotStore?
     var onVisibilityChange: ((Bool) -> Void)?
 
@@ -161,6 +163,7 @@ final class WidgetFlyoutController {
     }
 
     private func show(_ kind: FlyoutKind) {
+        guard !kind.requiresPro || LicenseManager.isPro else { return }
         self.kind = kind
         let panel = makePanel()
         panel.alphaValue = 1
@@ -222,7 +225,6 @@ final class WidgetFlyoutController {
             stats: stats ?? SystemMonitor(),
             calendar: calendar ?? CalendarService(),
             weather: weather ?? WeatherService(),
-            nowPlaying: nowPlaying ?? NowPlayingService(),
             apps: apps ?? AppSlotStore.shared,
             onHover: { [weak self] hovering in
                 self?.pointerInFlyout = hovering
@@ -262,7 +264,6 @@ private struct WidgetFlyoutView: View {
     var stats: SystemMonitor
     var calendar: CalendarService
     var weather: WeatherService
-    var nowPlaying: NowPlayingService
     var apps: AppSlotStore
     var onHover: (Bool) -> Void
 
@@ -302,16 +303,12 @@ private struct WidgetFlyoutView: View {
                 WeatherFlyout(service: weather, accent: accent)
             case .status:
                 StatusFlyout(stats: stats, accent: accent)
-            case .nowPlaying:
-                NowPlayingFlyout(service: nowPlaying, accent: accent)
             case .network:
                 NetworkFlyout(stats: stats, accent: accent)
             case .processes:
                 ProcessFlyout(stats: stats)
             case .devices:
                 DeviceFlyout(stats: stats)
-            case .screenshot:
-                ScreenshotFlyout(manager: ScreenshotManager.shared, accent: accent)
             case .search:
                 SearchFlyout(service: SearchService.shared, accent: accent)
             }
@@ -731,13 +728,10 @@ private struct CalendarFlyout: View {
     var accent: Color
 
     var body: some View {
-        if calendar.authorizationDenied {
-            VStack(spacing: 10) {
-                flyoutEmpty(symbol: "calendar.badge.exclamationmark", text: "Calendar access is needed to show upcoming events.")
-                Button("Open Settings") { calendar.openSettings() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white.opacity(0.7))
-            }
+        if calendar.authorizationNotDetermined {
+            flyoutEmpty(symbol: "calendar", text: "Calendar permission is awaiting your response.")
+        } else if calendar.authorizationDenied {
+            flyoutEmpty(symbol: "calendar.badge.exclamationmark", text: "Calendar is unavailable because access is off.")
         } else if calendar.upcoming.isEmpty {
             flyoutEmpty(symbol: "calendar", text: "No events in the next 7 days.")
         } else {
@@ -862,7 +856,14 @@ private struct WeatherFlyout: View {
                 }
             }
         } else {
-            flyoutEmpty(symbol: "cloud.sun", text: service.statusText)
+            flyoutEmpty(
+                symbol: "cloud.sun",
+                text: service.authorizationNotDetermined
+                    ? "Location permission is awaiting your response."
+                    : (service.authorizationDenied
+                        ? "Weather is unavailable because location access is off."
+                        : service.statusText)
+            )
         }
     }
 }

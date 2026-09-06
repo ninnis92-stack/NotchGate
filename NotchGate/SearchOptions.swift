@@ -53,7 +53,7 @@ struct SearchOptions: View {
             }
             Toggle("Show search history", isOn: $layout.searchShowHistory)
             Toggle("Remember recent searches", isOn: $layout.searchRememberHistory)
-            Text("Search uses Spotlight on this Mac. Cmd+Space stays with system Spotlight. The in-notch shortcut is ⌘⇧F while the island is open.")
+            Text("Search uses this Mac’s Spotlight index: names, apps, and file contents. ⌘Space stays with Spotlight. NotchGate search is ⌘⇧F.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

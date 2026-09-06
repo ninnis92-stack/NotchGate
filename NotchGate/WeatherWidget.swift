@@ -35,35 +35,78 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyKilometer
     }
 
+    var authorizationNotDetermined: Bool {
+        manager.authorizationStatus == .notDetermined
+    }
+
+    var authorizationDenied: Bool {
+        manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted
+    }
+
     func start() {
         guard !started else { return }
         started = true
-        manager.requestWhenInUseAuthorization()
-        manager.requestLocation()
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in
             guard let self else { return }
             if let location = self.lastLocation {
                 Task { await self.fetch(from: location) }
-            } else {
+            } else if self.hasLocationAuthorization {
                 self.manager.requestLocation()
             }
         }
         if let refreshTimer {
             RunLoop.main.add(refreshTimer, forMode: .common)
         }
+        requestLocationIfAllowed()
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        if status == .denied || status == .restricted {
-            statusText = "Location access needed"
-        } else if status != .notDetermined {
-            manager.requestLocation()
+    func stop() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        started = false
+    }
+
+    /// Called once during Pro onboarding. Glance views never initiate permission prompts.
+    func requestAccessIfNeeded() {
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        } else {
+            requestLocationIfAllowed()
         }
     }
 
+    private var hasLocationAuthorization: Bool {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse: return true
+        default: return false
+        }
+    }
+
+    private func requestLocationIfAllowed() {
+        guard hasLocationAuthorization else {
+            if manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted {
+                statusText = "Location access needed"
+            }
+            return
+        }
+        statusText = "Locating…"
+        manager.requestLocation()
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        requestLocationIfAllowed()
+    }
+
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        let nsError = error as NSError
+        if nsError.domain == kCLErrorDomain, nsError.code == CLError.locationUnknown.rawValue {
+            return
+        }
+        if nsError.domain == kCLErrorDomain, nsError.code == CLError.denied.rawValue {
+            statusText = "Location access needed"
+            return
+        }
         statusText = "Weather unavailable"
     }
 
@@ -74,10 +117,13 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
     }
 
     private func fetch(from location: CLLocation) async {
+        let locale = Locale(identifier: "en_US_POSIX")
+        let latitude = String(format: "%.2f", locale: locale, location.coordinate.latitude)
+        let longitude = String(format: "%.2f", locale: locale, location.coordinate.longitude)
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
         components?.queryItems = [
-            URLQueryItem(name: "latitude", value: String(location.coordinate.latitude)),
-            URLQueryItem(name: "longitude", value: String(location.coordinate.longitude)),
+            URLQueryItem(name: "latitude", value: latitude),
+            URLQueryItem(name: "longitude", value: longitude),
             URLQueryItem(name: "current", value: "temperature_2m,weather_code"),
             URLQueryItem(name: "daily", value: "weather_code,temperature_2m_max,temperature_2m_min"),
             URLQueryItem(name: "forecast_days", value: "5"),
@@ -238,14 +284,17 @@ struct WeatherWidget: View {
                     .truncationMode(.tail)
                     .layoutPriority(-1)
             } else {
-                Image(systemName: "cloud.sun")
-                    .foregroundStyle(accent.opacity(0.7))
-                Text(service.statusText)
+                Image(systemName: "cloud.sun.fill")
+                    .foregroundStyle(accent)
+                    .frame(width: 16)
+                Text("Weather")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.45))
+                    .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                Text("—")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.45))
             }
         }
         .lineLimit(1)

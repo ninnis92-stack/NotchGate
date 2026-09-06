@@ -47,16 +47,19 @@ enum ProFeature: String, CaseIterable, Identifiable {
 final class LicenseManager {
     static let shared = LicenseManager()
     static let productID = "com.notchlens.pro"
-    #if DEBUG
-    static let bypassPaidGate = true
-    #else
-    static let bypassPaidGate = false
-    #endif
+    /// Debug Run on this Mac unlocks Pro for preview. Release / Archive stays locked.
+    static let bypassPaidGate: Bool = {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }()
     static var isPro: Bool { shared.isPro }
 
     private(set) var isPro = false
     private(set) var product: Product?
-    private(set) var displayPrice = "$4.99"
+    private(set) var displayPrice = "$9.99"
     private(set) var isPurchasing = false
     private(set) var isRestoring = false
     private(set) var isStoreAvailable = true
@@ -118,7 +121,7 @@ final class LicenseManager {
             try await AppStore.sync()
             let entitled = await storeEntitlement()
             if let entitled {
-                applyLicense(entitled, persist: entitled || !KeychainLicense.isPro)
+                applyLicense(entitled, persist: true)
             }
             if isPro {
                 statusMessage = "Purchases restored."
@@ -144,8 +147,8 @@ final class LicenseManager {
             if let entitled = await storeEntitlement() {
                 if entitled {
                     applyLicense(true, persist: true)
-                } else if product != nil, !KeychainLicense.isPro, !LicenseBackup.isPro {
-                    applyLicense(false, persist: false)
+                } else if product != nil {
+                    applyLicense(false, persist: true)
                 } else {
                     applyLicense(KeychainLicense.isPro || LicenseBackup.isPro, persist: false)
                 }
@@ -170,7 +173,8 @@ final class LicenseManager {
     }
 
     private func grant(from transaction: StoreKit.Transaction) async {
-        let entitled = transaction.productID == Self.productID && transaction.revocationDate == nil
+        guard transaction.productID == Self.productID else { return }
+        let entitled = transaction.revocationDate == nil
         applyLicense(entitled, persist: true)
     }
 
@@ -304,6 +308,11 @@ enum UtilityWindows {
         func raise(_ window: NSWindow?) {
             guard let window, window.isVisible else { return }
             window.level = level
+            if let sheet = window.attachedSheet {
+                sheet.level = NSWindow.Level(rawValue: level.rawValue + 8)
+                sheet.orderFrontRegardless()
+                return
+            }
             window.orderFrontRegardless()
         }
         raise(settingsWindow)
@@ -323,7 +332,7 @@ enum UtilityWindows {
 
     static func restoreAccessoryIfIdle() {
         if !isBlockingIsland {
-            NSApp.setActivationPolicy(.accessory)
+            AppPresentation.applyDefaultActivationPolicy()
         }
         postBlockingChanged()
     }

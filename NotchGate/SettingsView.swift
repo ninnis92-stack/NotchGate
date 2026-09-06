@@ -69,7 +69,9 @@ struct SettingsView: View {
                 if usesStatusChips(layout) {
                     statusChips(layout: layout)
                 }
-                appearance(theme: theme)
+                if license.isPro {
+                    appearance(theme: theme)
+                }
                 general
                 licenseSection
             }
@@ -111,12 +113,15 @@ struct SettingsView: View {
             Toggle(isOn: $layout.showFullscreenShoulders) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Show shoulder indicators")
-                    Text("CPU, clock, and the other glance items on the wings. Click one to open it. Off hides the items; the black shoulders stay.")
+                    Text("CPU, clock, search, and the other glance items on the wings. Click to use them. Off hides the items; the black shoulders stay.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .toggleStyle(.switch)
+            if layout.assignsSearch {
+                SearchOptions(layout: layout)
+            }
         }
     }
 
@@ -152,12 +157,17 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Picker(label, selection: selection) {
-                ForEach(NotchShoulder.allCases) { slot in
+                ForEach(shoulderChoices(current: selection.wrappedValue)) { slot in
                     Label(slot.title, systemImage: slot.symbol).tag(slot)
                 }
             }
             .labelsHidden()
             .pickerStyle(.menu)
+            .onAppear {
+                if selection.wrappedValue == .network, !license.isPro {
+                    selection.wrappedValue = .load
+                }
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -173,8 +183,10 @@ struct SettingsView: View {
                 HStack(spacing: 16) {
                     Toggle("CPU", isOn: $layout.showCPUStat)
                     Toggle("RAM", isOn: $layout.showMemoryStat)
-                    Toggle("Disk", isOn: $layout.showDiskStat)
-                    Toggle("Battery", isOn: $layout.showBattery)
+                    if license.isPro {
+                        Toggle("Disk", isOn: $layout.showDiskStat)
+                        Toggle("Battery", isOn: $layout.showBattery)
+                    }
                 }
                 .toggleStyle(.checkbox)
                 .padding(.leading, 30)
@@ -184,16 +196,17 @@ struct SettingsView: View {
             if layout.showAppSlots {
                 appsPreferences(layout: layout)
             }
+            Toggle(isOn: $layout.showSystemHUDs) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Volume and brightness HUD")
+                    Text("A small meter under the island when you use the keys. The system HUD may still appear.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
             moduleRow("switch.2", "Status", "Wi‑Fi, battery, Control Center.", $layout.showStatusStrip)
-            moduleRow("camera", "Screenshots", "Capture the display, a window, or a selection.", $layout.showScreenshots)
-            if layout.showScreenshots {
-                ScreenshotOptions(layout: layout)
-            }
-            moduleRow("magnifyingglass", "Search", "Spotlight-powered search from the island.", $layout.showSearch)
-            if layout.showSearch {
-                SearchOptions(layout: layout)
-            }
-            moduleRow("timer", "Pomodoro", "Draggable timer window. Assign it to a shoulder to open it from the island.", $layout.showPomodoro)
+            moduleRow("timer", "Pomodoro", "Draggable timer window. Assign Pomodoro or Search to a shoulder.", $layout.showPomodoro)
             if license.isPro {
                 moduleRow("arrow.up.arrow.down", "Network", "Live upload and download.", $layout.showNetwork)
                 moduleRow("app.badge", "Active apps", "CPU and memory per app.", $layout.showProcesses)
@@ -209,6 +222,8 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                     .padding(.leading, 30)
                 }
+            } else {
+                proOverview
             }
         }
     }
@@ -225,7 +240,7 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
             Toggle("Show names under icons", isOn: $layout.showAppLabels)
             Toggle("Preview mode", isOn: $layout.showAppPreviews)
-            Text("Hover an app to see its window. NotchGate only captures if Screen Recording is already allowed — it never asks on hover. Click the icon to open.")
+            Text("Hover an app to see its name and running status. Click the icon to open.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach(0..<AppSlotStore.slotCount, id: \.self) { index in
@@ -286,35 +301,50 @@ struct SettingsView: View {
     private func appearance(theme: ThemeManager) -> some View {
         @Bindable var theme = theme
         return settingsGroup("Look") {
-            if license.isPro {
-                HStack(spacing: 10) {
-                    ForEach(NotchTheme.allCases) { item in
-                        Button {
-                            theme.theme = item
-                        } label: {
-                            VStack(spacing: 6) {
-                                Circle()
-                                    .fill(item.accent)
-                                    .frame(width: 22, height: 22)
-                                    .overlay {
-                                        Circle()
-                                            .strokeBorder(.white.opacity(theme.theme == item ? 0.9 : 0.15), lineWidth: theme.theme == item ? 2 : 1)
-                                    }
-                                Text(item.title)
-                                    .font(.caption2)
-                                    .foregroundStyle(theme.theme == item ? .primary : .secondary)
-                            }
-                            .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                ForEach(NotchTheme.allCases) { item in
+                    Button {
+                        theme.theme = item
+                    } label: {
+                        VStack(spacing: 6) {
+                            Circle()
+                                .fill(item.accent)
+                                .frame(width: 22, height: 22)
+                                .overlay {
+                                    Circle()
+                                        .strokeBorder(.white.opacity(theme.theme == item ? 0.9 : 0.15), lineWidth: theme.theme == item ? 2 : 1)
+                                }
+                            Text(item.title)
+                                .font(.caption2)
+                                .foregroundStyle(theme.theme == item ? .primary : .secondary)
                         }
-                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.plain)
                 }
-            } else {
-                Text("Accent themes unlock with Pro.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func shoulderChoices(current: NotchShoulder) -> [NotchShoulder] {
+        NotchShoulder.allCases.filter { slot in
+            slot != .network || license.isPro || current == .network
+        }
+    }
+
+    private var proOverview: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Pro")
+                .font(.system(size: 12, weight: .semibold))
+            Text("Calendar, weather, live network, per-app load, devices, disk and battery meters, and accent themes. One-time purchase.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Unlock Pro — \(license.displayPrice)") {
+                UtilityWindows.showPricing()
+            }
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(.top, 4)
     }
 
     private var general: some View {
@@ -323,6 +353,15 @@ struct SettingsView: View {
                 Text("1 second").tag(1.0)
                 Text("5 seconds").tag(5.0)
                 Text("10 seconds").tag(10.0)
+            }
+            Toggle("Motion", isOn: Bindable(customization).enableAnimations)
+            if customization.enableAnimations {
+                Picker("Speed", selection: Bindable(customization).animationSpeed) {
+                    Text("Calm").tag(0.75)
+                    Text("Standard").tag(1.0)
+                    Text("Snappy").tag(1.35)
+                }
+                .pickerStyle(.segmented)
             }
             Toggle("Open at login", isOn: $launchesAtLogin)
                 .onChange(of: launchesAtLogin) { _, enabled in
@@ -343,15 +382,9 @@ struct SettingsView: View {
                     Text(license.isPro ? "Pro" : "Free")
                         .font(.headline)
                     Spacer()
-                    if !license.isPro {
-                        Button("Unlock Pro") {
-                            UtilityWindows.showPricing()
-                        }
-                        .keyboardShortcut(.defaultAction)
-                    }
                 }
-                if LicenseManager.bypassPaidGate {
-                    Text("Paid gate is off for testing.")
+                if !license.isPro {
+                    Text("Free includes the island, CPU and memory, apps, Now Playing, search, HUDs, and Pomodoro.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -364,12 +397,14 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Product ID \(LicenseManager.productID)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                if license.isPro {
+                    Text("Product ID \(LicenseManager.productID)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             settingsGroup("Legal") {
-                Text("NotchGate uses calendar, location, now-playing, and optional screen capture only on this Mac. Screenshots and search history stay on this Mac. Nothing is sold or sent to NotchLens except App Store receipt checks.")
+                Text("NotchGate uses calendar, location, and now-playing information for its features. Settings and search history stay on this Mac. Nothing is sold or sent to NotchLens except App Store receipt checks.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

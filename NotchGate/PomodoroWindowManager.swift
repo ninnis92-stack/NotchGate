@@ -10,8 +10,7 @@ final class PomodoroWindowManager: NSObject, NSWindowDelegate {
 
     func toggle() {
         if panel?.isVisible == true {
-            panel?.orderOut(nil)
-            persistPosition()
+            hideAnimated()
             return
         }
         show()
@@ -20,13 +19,36 @@ final class PomodoroWindowManager: NSObject, NSWindowDelegate {
     func show() {
         let panel = makePanel()
         panel.setContentSize(PomodoroWindowView.panelSize)
-        if NotchCustomization.shared.rememberPosition, let origin = storedOrigin() {
+        if NotchCustomization.shared.rememberPosition, let origin = storedOrigin(), originIsOnScreen(origin) {
             panel.setFrameOrigin(origin)
         } else {
             panel.center()
         }
+        panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
         self.panel = panel
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = NotchAnimationManager.shared.expandDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+        }
+    }
+
+    private func hideAnimated() {
+        persistPosition()
+        guard let panel else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = NotchAnimationManager.shared.fadeDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().alphaValue = 0
+        } completionHandler: {
+            panel.orderOut(nil)
+        }
+    }
+
+    private func originIsOnScreen(_ origin: NSPoint) -> Bool {
+        let probe = NSRect(x: origin.x, y: origin.y, width: 40, height: 40)
+        return NSScreen.screens.contains { $0.visibleFrame.intersects(probe) }
     }
 
     func persistPosition() {
@@ -49,6 +71,7 @@ final class PomodoroWindowManager: NSObject, NSWindowDelegate {
                 .environment(PomodoroService.shared)
                 .environment(ThemeManager.shared)
                 .environment(NotchCustomization.shared)
+                .environment(NotchAnimationManager.shared)
         )
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: PomodoroWindowView.panelSize),

@@ -21,7 +21,7 @@ struct SearchWidget: View {
         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture {
             if NotchCustomization.shared.searchTrigger != .hover {
-                SearchService.shared.search(SearchService.shared.query)
+                SearchService.shared.open()
             }
         }
     }
@@ -33,80 +33,202 @@ struct SearchFlyout: View {
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        SearchSessionView(service: service, accent: accent, compact: true, fieldFocused: $fieldFocused)
+            .onAppear {
+                service.search(service.query)
+                DispatchQueue.main.async { fieldFocused = true }
+            }
+    }
+}
+
+struct SearchSessionView: View {
+    @Bindable var service: SearchService
+    var accent: Color
+    var compact: Bool
+    var fieldFocused: FocusState<Bool>.Binding
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: compact ? 10 : 0) {
+            HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: compact ? 13 : 18, weight: .semibold))
                     .foregroundStyle(accent)
-                TextField("Search files, apps, or calculate", text: Binding(
+                TextField("Search this Mac", text: Binding(
                     get: { service.query },
-                    set: { service.query = $0; service.search($0) }
+                    set: { service.search($0) }
                 ))
                 .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .font(.system(size: compact ? 13 : 22, weight: .medium, design: .rounded))
                 .foregroundStyle(.white)
-                .focused($fieldFocused)
-                .onSubmit { submitFirst() }
+                .focused(fieldFocused)
+                .onSubmit { service.submitSelected() }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, compact ? 10 : 18)
+            .padding(.vertical, compact ? 8 : 16)
+            .background {
+                if compact {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                }
+            }
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    if service.results.isEmpty {
-                        Text(service.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                             ? "Type to search this Mac."
-                             : "No results on this Mac.")
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.4))
-                            .padding(.vertical, 8)
-                    } else {
-                        ForEach(service.results) { hit in
-                            Button {
-                                if hit.kind == .history {
-                                    service.query = hit.title
-                                    service.search(hit.title)
-                                    fieldFocused = true
-                                } else {
-                                    service.submit(hit)
+            if !compact {
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .frame(height: 1)
+            }
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        if service.results.isEmpty {
+                            Text(service.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                 ? "Search names and contents on this Mac."
+                                 : "No matching apps or files.")
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.4))
+                                .padding(.vertical, 12)
+                                .padding(.horizontal, compact ? 8 : 14)
+                        } else {
+                            ForEach(Array(service.results.enumerated()), id: \.element.id) { index, hit in
+                                SearchHitRow(
+                                    hit: hit,
+                                    accent: accent,
+                                    selected: index == service.selectedIndex
+                                ) {
+                                    service.selectedIndex = index
+                                    if hit.kind == .history {
+                                        service.search(hit.title)
+                                        fieldFocused.wrappedValue = true
+                                    } else {
+                                        service.submit(hit)
+                                    }
                                 }
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(hit.title)
-                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.92))
-                                        .lineLimit(1)
-                                    Text(hit.subtitle)
-                                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.white.opacity(0.4))
-                                        .lineLimit(1)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
-                                .contentShape(Rectangle())
+                                .id(hit.id)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
+                    .padding(.horizontal, compact ? 0 : 8)
+                    .padding(.vertical, compact ? 0 : 8)
+                }
+                .onChange(of: service.selectedIndex) { _, index in
+                    guard service.results.indices.contains(index) else { return }
+                    proxy.scrollTo(service.results[index].id, anchor: .center)
                 }
             }
             .frame(maxHeight: .infinity)
+
+            if !compact {
+                HStack(spacing: 12) {
+                    hint("↩", "Open")
+                    hint("⌘↩", "Finder")
+                    hint("esc", "Close")
+                    Spacer()
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 12)
+            }
         }
-        .onAppear {
-            service.search(service.query)
-            DispatchQueue.main.async {
-                fieldFocused = true
+        .onKeyPress(.downArrow) {
+            service.moveSelection(1)
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            service.moveSelection(-1)
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            service.close()
+            return .handled
+        }
+        .onKeyPress { press in
+            if press.key == .return, press.modifiers.contains(.command) {
+                service.revealSelected()
+                return .handled
+            }
+            return .ignored
+        }
+    }
+
+    private func hint(_ keys: String, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(keys)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.55))
+            Text(label)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.35))
+        }
+    }
+}
+
+private struct SearchHitRow: View {
+    let hit: SearchHit
+    var accent: Color
+    var selected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                SearchHitIcon(hit: hit)
+                    .frame(width: 28, height: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hit.title)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.94))
+                        .lineLimit(1)
+                    Text(hit.subtitle)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.42))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "return")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selected ? accent.opacity(0.28) : Color.clear)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct SearchHitIcon: View {
+    let hit: SearchHit
+
+    var body: some View {
+        Group {
+            if let url = hit.url, url.isFileURL {
+                Image(nsImage: AppIconCache.image(for: url))
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
         }
     }
 
-    private func submitFirst() {
-        if let first = service.results.first(where: { $0.kind != .history }) {
-            service.submit(first)
-        } else {
-            service.remember(service.query)
+    private var symbol: String {
+        switch hit.kind {
+        case .web: return "globe"
+        case .calculator: return "plus.forwardslash.minus"
+        case .history: return "clock"
+        case .app: return "app.fill"
+        case .file: return "doc"
         }
     }
 }
@@ -114,100 +236,103 @@ struct SearchFlyout: View {
 @MainActor
 final class SpotlightPanelController {
     static let shared = SpotlightPanelController()
-    private var panel: NSPanel?
+    private var panel: SpotlightSearchPanel?
     private var hosting: NSHostingView<SpotlightPanelView>?
+    private var resignObserver: NSObjectProtocol?
 
     func show(service: SearchService) {
         UtilityWindows.prepareForStoreKit()
         let root = SpotlightPanelView(service: service)
         if let panel, let hosting {
             hosting.rootView = root
+            position(panel)
             panel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
         let hosting = NSHostingView(rootView: root)
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 460),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+        let panel = SpotlightSearchPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 460),
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        panel.title = "Search"
         panel.isFloatingPanel = true
         panel.level = UtilityWindows.windowLevel
-        panel.hidesOnDeactivate = false
+        panel.hidesOnDeactivate = true
         panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.contentView = hosting
-        panel.center()
+        position(panel)
         panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         self.hosting = hosting
         self.panel = panel
-        service.search(service.query)
+
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: panel,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                if SearchService.shared.isOpen {
+                    SearchService.shared.close()
+                }
+            }
+        }
     }
 
     func hide() {
         panel?.orderOut(nil)
         UtilityWindows.restoreAccessoryIfIdle()
     }
+
+    private func position(_ panel: NSPanel) {
+        let screen = NSScreen.main?.visibleFrame ?? .zero
+        let size = NSSize(width: 560, height: 460)
+        panel.setFrame(
+            NSRect(
+                x: screen.midX - size.width / 2,
+                y: screen.midY + 36,
+                width: size.width,
+                height: size.height
+            ),
+            display: true
+        )
+    }
+}
+
+final class SpotlightSearchPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    override func cancelOperation(_ sender: Any?) {
+        SearchService.shared.close()
+    }
 }
 
 struct SpotlightPanelView: View {
     @Bindable var service: SearchService
-    @Environment(\.controlActiveState) private var active
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search files, apps, or calculate", text: Binding(
-                    get: { service.query },
-                    set: { service.query = $0; service.search($0) }
-                ))
-                .textFieldStyle(.plain)
-                .onSubmit { submitFirst() }
-            }
-            .padding(12)
-            Divider()
-            if service.results.isEmpty {
-                Text("No results on this Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(service.results) { hit in
-                    Button {
-                        if hit.kind == .history {
-                            service.search(hit.title)
-                        } else {
-                            service.submit(hit)
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(hit.title)
-                                .foregroundStyle(.primary)
-                            Text(hit.subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+        SearchSessionView(service: service, accent: Color.white.opacity(0.92), compact: false, fieldFocused: $fieldFocused)
+            .frame(minWidth: 520, minHeight: 420)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.black.opacity(0.96))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
                     }
-                    .buttonStyle(.plain)
-                }
-                .listStyle(.sidebar)
+                    .shadow(color: .black.opacity(0.45), radius: 28, y: 12)
             }
-        }
-        .frame(minWidth: 380, minHeight: 420)
-        .onAppear {
-            service.search(service.query)
-        }
-    }
-
-    private func submitFirst() {
-        if let first = service.results.first(where: { $0.kind != .history }) {
-            service.submit(first)
-        } else {
-            service.remember(service.query)
-        }
+            .padding(10)
+            .onAppear {
+                DispatchQueue.main.async { fieldFocused = true }
+            }
     }
 }

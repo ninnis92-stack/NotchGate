@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Opaque field. App Store icons cannot ship with a transparent canvas. -->
+  <rect width="1024" height="1024" fill="#1C1C1E"/>
+  <!-- Stylized G / gate: open on the right like a notch. -->
+  <path
+    d="M 742 362
+       A 268 268 0 1 0 742 662"
+    fill="none"
+    stroke="#F5F5F7"
+    stroke-width="118"
+    stroke-linecap="round"/>
+  <path
+    d="M 512 512 L 700 512"
+    fill="none"
+    stroke="#F5F5F7"
+    stroke-width="118"
+    stroke-linecap="round"/>
+  <!-- Teal latch through the gate opening. -->
+  <path
+    d="M 560 512 L 868 512"
+    fill="none"
+    stroke="#008080"
+    stroke-width="56"
+    stroke-linecap="round"/>
+</svg>

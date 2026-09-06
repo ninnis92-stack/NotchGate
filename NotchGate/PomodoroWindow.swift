@@ -8,27 +8,34 @@ struct PomodoroWindowView: View {
     @Environment(ThemeManager.self) private var theme
     @State private var durationDraft = ""
     @State private var dragOrigin: CGPoint?
+    @State private var appeared = false
     @FocusState private var editingTime: Bool
 
     var body: some View {
+        let motion = NotchAnimationManager.shared
         VStack(spacing: 16) {
             Text("Pomodoro")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.55))
-            PomodoroAnalogClock(progress: service.justFinished ? 1 : service.progress, accent: theme.accent)
-                .frame(width: 148, height: 148)
+            PomodoroAnalogClock(
+                progress: service.justFinished ? 1 : service.progress,
+                accent: service.justFinished ? Color(red: 0.45, green: 0.92, blue: 0.62) : theme.accent
+            )
+            .frame(width: 148, height: 148)
             if service.justFinished {
                 Text("Countdown complete")
                     .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(red: 0.45, green: 0.92, blue: 0.62))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
+                    .transition(.opacity)
             } else if service.isActive {
                 Text(service.display)
                     .font(.system(size: 28, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .monospacedDigit()
                     .frame(maxWidth: .infinity)
+                    .contentTransition(.numericText())
             } else {
                 TextField("25:00", text: $durationDraft)
                     .textFieldStyle(.plain)
@@ -56,16 +63,16 @@ struct PomodoroWindowView: View {
                         service.startTimer()
                     }
                 } label: {
-                    Image(systemName: service.isActive ? "pause.fill" : "play.fill")
-                    Text(service.isActive ? "Pause" : "Play")
+                    Label(service.isActive ? "Pause" : "Play", systemImage: service.isActive ? "pause.fill" : "play.fill")
                 }
+                .buttonStyle(PomodoroControlStyle())
                 Button {
                     service.stop()
                     durationDraft = service.display
                 } label: {
-                    Image(systemName: "stop.fill")
-                    Text("Stop")
+                    Label("Stop", systemImage: "stop.fill")
                 }
+                .buttonStyle(PomodoroControlStyle())
             }
             .controlSize(.small)
             Spacer(minLength: 0)
@@ -74,8 +81,16 @@ struct PomodoroWindowView: View {
         .frame(width: Self.panelSize.width, height: Self.panelSize.height)
         .background(Color.black, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 50)
+        .animation(motion.appearAnimation, value: appeared)
+        .animation(motion.fadeAnimation, value: service.justFinished)
+        .animation(motion.fadeAnimation, value: service.isActive)
         .gesture(windowDrag)
-        .onAppear { durationDraft = service.display }
+        .onAppear {
+            durationDraft = service.display
+            appeared = true
+        }
         .onChange(of: service.display) { _, value in
             if !editingTime { durationDraft = value }
         }
@@ -101,44 +116,57 @@ struct PomodoroWindowView: View {
     }
 }
 
+private struct PomodoroControlStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HoverScaleButtonShell(configuration: configuration)
+    }
+}
+
+private struct HoverScaleButtonShell: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var hovering = false
+
+    var body: some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(hovering ? Color.black : .white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                Capsule().fill(hovering ? Color.white : Color.white.opacity(0.12))
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : (hovering ? 1.1 : 1))
+            .animation(NotchAnimationManager.shared.hoverAnimation, value: hovering)
+            .animation(NotchAnimationManager.shared.hoverAnimation, value: configuration.isPressed)
+            .onHover { hovering = $0 }
+    }
+}
+
 private struct PomodoroAnalogClock: View {
     var progress: Double
     var accent: Color
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 15)) { _ in
-            Canvas { context, size in
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let radius = min(size.width, size.height) / 2 - 6
-                let face = Path(ellipseIn: CGRect(
-                    x: center.x - radius,
-                    y: center.y - radius,
-                    width: radius * 2,
-                    height: radius * 2
-                ))
-                context.stroke(face, with: .color(.white.opacity(0.18)), lineWidth: 3)
-                for hour in 0..<12 {
-                    let angle = Angle.degrees(Double(hour) / 12 * 360 - 90)
-                    var tickPath = Path()
-                    tickPath.move(to: point(center, radius - 12, angle))
-                    tickPath.addLine(to: point(center, radius - 2, angle))
-                    context.stroke(tickPath, with: .color(.white.opacity(0.45)), lineWidth: 2)
-                }
-                let handAngle = Angle.degrees(progress * 360 - 90)
-                var hand = Path()
-                hand.move(to: center)
-                hand.addLine(to: point(center, radius - 16, handAngle))
-                context.stroke(hand, with: .color(accent), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                let hub = Path(ellipseIn: CGRect(x: center.x - 4, y: center.y - 4, width: 8, height: 8))
-                context.fill(hub, with: .color(accent))
+        ZStack {
+            Circle()
+                .stroke(Color.white.opacity(0.18), lineWidth: 3)
+            ForEach(0..<12, id: \.self) { hour in
+                Capsule()
+                    .fill(Color.white.opacity(0.45))
+                    .frame(width: 2, height: 10)
+                    .offset(y: -62)
+                    .rotationEffect(.degrees(Double(hour) / 12 * 360))
             }
+            Capsule()
+                .fill(accent)
+                .frame(width: 3, height: 54)
+                .offset(y: -27)
+                .rotationEffect(.degrees(progress * 360))
+            Circle()
+                .fill(accent)
+                .frame(width: 8, height: 8)
         }
-    }
-
-    private func point(_ center: CGPoint, _ radius: CGFloat, _ angle: Angle) -> CGPoint {
-        CGPoint(
-            x: center.x + CGFloat(cos(angle.radians)) * radius,
-            y: center.y + CGFloat(sin(angle.radians)) * radius
-        )
+        .animation(.linear(duration: 0.2), value: progress)
+        .animation(NotchAnimationManager.shared.fadeAnimation, value: accent)
     }
 }

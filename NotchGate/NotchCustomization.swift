@@ -63,7 +63,6 @@ enum AppSlotStyle: String, CaseIterable, Identifiable {
 enum NotchOverlayLevel: String, CaseIterable, Identifiable {
     case menuBar
     case popUpMenu
-    case screenSaver
 
     var id: String { rawValue }
 
@@ -71,7 +70,6 @@ enum NotchOverlayLevel: String, CaseIterable, Identifiable {
         switch self {
         case .menuBar: return "Menu bar"
         case .popUpMenu: return "Pop-up menu"
-        case .screenSaver: return "Screen saver (highest)"
         }
     }
 
@@ -79,7 +77,6 @@ enum NotchOverlayLevel: String, CaseIterable, Identifiable {
         switch self {
         case .menuBar: return "Same height as the system menu bar."
         case .popUpMenu: return "Above full-screen apps; below the lock screen."
-        case .screenSaver: return "Above almost everything. Can break hover."
         }
     }
 
@@ -88,14 +85,12 @@ enum NotchOverlayLevel: String, CaseIterable, Identifiable {
         case .menuBar:
             return NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.mainMenuWindow)) + 3)
         case .popUpMenu: return .popUpMenu
-        case .screenSaver: return .screenSaver
         }
     }
 
     static func stored(_ raw: String?) -> NotchOverlayLevel {
         switch raw {
         case "floating", "menuBar": return .menuBar
-        case "screenSaver": return .screenSaver
         default: return .popUpMenu
         }
     }
@@ -107,6 +102,7 @@ enum NotchShoulder: String, CaseIterable, Identifiable {
     case status
     case network
     case pomodoro
+    case search
     case empty
 
     var id: String { rawValue }
@@ -118,6 +114,7 @@ enum NotchShoulder: String, CaseIterable, Identifiable {
         case .status: return "Status chips"
         case .network: return "Network"
         case .pomodoro: return "Pomodoro"
+        case .search: return "Search"
         case .empty: return "Nothing"
         }
     }
@@ -129,6 +126,7 @@ enum NotchShoulder: String, CaseIterable, Identifiable {
         case .status: return "switch.2"
         case .network: return "arrow.up.arrow.down"
         case .pomodoro: return "timer"
+        case .search: return "magnifyingglass"
         case .empty: return "minus"
         }
     }
@@ -147,8 +145,6 @@ final class NotchCustomization {
     }
     /// When on, shoulder widgets stay visible in Full Screen even if the menu bar is hidden.
     var showFullscreenShoulders: Bool { didSet { persist("alwaysShowShoulderWidgets", showFullscreenShoulders) } }
-    /// When on, the island stays on Full Screen spaces at the chosen overlay level.
-    var alwaysShowInFullScreen: Bool { didSet { persist("keepIslandInFullScreen", alwaysShowInFullScreen) } }
     var overlayLevel: NotchOverlayLevel { didSet { persist("overlayLevel", overlayLevel.rawValue) } }
     /// When off, Settings and Pro stay above the island and its dropdown.
     var overlaySettingsWindows: Bool { didSet { persist("overlaySettingsWindows", overlaySettingsWindows) } }
@@ -161,8 +157,11 @@ final class NotchCustomization {
     var showWeather: Bool { didSet { persist("showWeather", showWeather) } }
     var showNowPlaying: Bool { didSet { persist("showNowPlaying", showNowPlaying) } }
     var showPomodoro: Bool { didSet { persist("showPomodoro", showPomodoro) } }
+    var showSystemHUDs: Bool { didSet { persist("showSystemHUDs", showSystemHUDs) } }
     var pomodoroDuration: TimeInterval { didSet { persist("pomodoroDuration", pomodoroDuration) } }
     var rememberPosition: Bool { didSet { persist("rememberPosition", rememberPosition) } }
+    var enableAnimations: Bool { didSet { persist("enableAnimations", enableAnimations) } }
+    var animationSpeed: Double { didSet { persist("animationSpeed", animationSpeed) } }
     var showCPUStat: Bool { didSet { persist("showCPUStat", showCPUStat) } }
     var showMemoryStat: Bool { didSet { persist("showMemoryStat", showMemoryStat) } }
     var showDiskStat: Bool { didSet { persist("showDiskStat", showDiskStat) } }
@@ -175,16 +174,6 @@ final class NotchCustomization {
     /// Reserved for a later preview pass. Icon-only launch is the default.
     var showAppPreviews: Bool { didSet { persist("showAppPreviews", showAppPreviews) } }
     var showAppLabels: Bool { didSet { persist("showAppLabels", showAppLabels) } }
-    var showScreenshots: Bool { didSet { persist("showScreenshots", showScreenshots) } }
-    var screenshotShowPreview: Bool { didSet { persist("screenshotShowPreview", screenshotShowPreview) } }
-    var screenshotIncludeCursor: Bool { didSet { persist("screenshotIncludeCursor", screenshotIncludeCursor) } }
-    var screenshotWindowShadows: Bool { didSet { persist("screenshotWindowShadows", screenshotWindowShadows) } }
-    var screenshotSaveLocation: ScreenshotSaveLocation {
-        didSet { persist("screenshotSaveLocation", screenshotSaveLocation.rawValue) }
-    }
-    var screenshotFormat: ScreenshotImageFormat {
-        didSet { persist("screenshotFormat", screenshotFormat.rawValue) }
-    }
     var showSearch: Bool { didSet { persist("showSearch", showSearch) } }
     var searchShowHistory: Bool { didSet { persist("searchShowHistory", searchShowHistory) } }
     var searchRememberHistory: Bool { didSet { persist("searchRememberHistory", searchRememberHistory) } }
@@ -204,6 +193,8 @@ final class NotchCustomization {
         didSet { persist("temperatureUnit", temperatureUnit.rawValue) }
     }
 
+    var assignsSearch: Bool { leftShoulder == .search || rightShoulder == .search }
+
     func expandedPanelHeight(collapsedBar: CGFloat, isPro: Bool) -> CGFloat {
         var rows: [CGFloat] = []
         if showMonitoring { rows.append(64) }
@@ -215,8 +206,6 @@ final class NotchCustomization {
         if showStatusStrip { rows.append(28) }
         if showCalendar, isPro { rows.append(32) }
         if showWeather, isPro { rows.append(32) }
-        if showScreenshots { rows.append(32) }
-        if showSearch { rows.append(32) }
         let spacing = CGFloat(max(rows.count - 1, 0)) * 8
         let padding = 2 + NotchGeometry.cornerRadius + 2
         return collapsedBar + rows.reduce(0, +) + spacing + padding
@@ -252,15 +241,13 @@ final class NotchCustomization {
             showFullscreenShoulders = true
         }
         if defaults.object(forKey: "notch.keepIslandInFullScreen") == nil {
-            alwaysShowInFullScreen = true
             overlayLevel = .popUpMenu
             defaults.set(true, forKey: "notch.keepIslandInFullScreen")
             defaults.set(NotchOverlayLevel.popUpMenu.rawValue, forKey: "notch.overlayLevel")
         } else {
-            alwaysShowInFullScreen = defaults.bool(forKey: "notch.keepIslandInFullScreen")
-            let storedLevel = NotchOverlayLevel.stored(defaults.string(forKey: "notch.overlayLevel"))
-            overlayLevel = storedLevel == .screenSaver ? .popUpMenu : storedLevel
-            if storedLevel == .screenSaver {
+            let storedLevel = defaults.string(forKey: "notch.overlayLevel")
+            overlayLevel = NotchOverlayLevel.stored(storedLevel)
+            if storedLevel == "screenSaver" {
                 defaults.set(NotchOverlayLevel.popUpMenu.rawValue, forKey: "notch.overlayLevel")
             }
         }
@@ -272,8 +259,11 @@ final class NotchCustomization {
         showWeather = defaults.object(forKey: "notch.showWeather") as? Bool ?? true
         showNowPlaying = defaults.object(forKey: "notch.showNowPlaying") as? Bool ?? true
         showPomodoro = defaults.object(forKey: "notch.showPomodoro") as? Bool ?? true
+        showSystemHUDs = defaults.object(forKey: "notch.showSystemHUDs") as? Bool ?? true
         pomodoroDuration = defaults.object(forKey: "notch.pomodoroDuration") as? Double ?? 25 * 60
         rememberPosition = defaults.object(forKey: "notch.rememberPosition") as? Bool ?? true
+        enableAnimations = defaults.object(forKey: "notch.enableAnimations") as? Bool ?? true
+        animationSpeed = defaults.object(forKey: "notch.animationSpeed") as? Double ?? 1
         showCPUStat = defaults.object(forKey: "notch.showCPUStat") as? Bool ?? true
         showMemoryStat = defaults.object(forKey: "notch.showMemoryStat") as? Bool ?? true
         showDiskStat = defaults.object(forKey: "notch.showDiskStat") as? Bool ?? true
@@ -283,12 +273,6 @@ final class NotchCustomization {
         appSlotStyle = AppSlotStyle(rawValue: defaults.string(forKey: "notch.appSlotStyle") ?? "") ?? .grid
         showAppPreviews = defaults.object(forKey: "notch.showAppPreviews") as? Bool ?? false
         showAppLabels = defaults.object(forKey: "notch.showAppLabels") as? Bool ?? false
-        showScreenshots = defaults.object(forKey: "notch.showScreenshots") as? Bool ?? false
-        screenshotShowPreview = defaults.object(forKey: "notch.screenshotShowPreview") as? Bool ?? true
-        screenshotIncludeCursor = defaults.object(forKey: "notch.screenshotIncludeCursor") as? Bool ?? false
-        screenshotWindowShadows = defaults.object(forKey: "notch.screenshotWindowShadows") as? Bool ?? true
-        screenshotSaveLocation = ScreenshotSaveLocation(rawValue: defaults.string(forKey: "notch.screenshotSaveLocation") ?? "") ?? .desktop
-        screenshotFormat = ScreenshotImageFormat(rawValue: defaults.string(forKey: "notch.screenshotFormat") ?? "") ?? .png
         showSearch = defaults.object(forKey: "notch.showSearch") as? Bool ?? true
         searchShowHistory = defaults.object(forKey: "notch.searchShowHistory") as? Bool ?? true
         searchRememberHistory = defaults.object(forKey: "notch.searchRememberHistory") as? Bool ?? true

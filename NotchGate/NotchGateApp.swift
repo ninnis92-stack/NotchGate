@@ -2,6 +2,25 @@ import AppKit
 import CoreGraphics
 import SwiftUI
 
+enum AppPresentation {
+    /// Keep NotchGate visible in the Dock so users can always quit or force quit it.
+    static let showsDockIcon = true
+    static var isStorePreview: Bool {
+        #if DEBUG
+        CommandLine.arguments.contains("--store-preview")
+        #else
+        false
+        #endif
+    }
+    static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    static func applyDefaultActivationPolicy() {
+        NSApp.setActivationPolicy(showsDockIcon ? .regular : .accessory)
+    }
+}
+
 @Observable
 final class NotchState {
     var isExpanded = false
@@ -53,13 +72,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let panelController = NotchPanelController()
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        AppPresentation.applyDefaultActivationPolicy()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        AppPresentation.applyDefaultActivationPolicy()
         LicenseManager.shared.start()
         panelController.show()
+        #if DEBUG
+        if CommandLine.arguments.contains("--show-pricing") {
+            DispatchQueue.main.async {
+                UtilityWindows.showPricing()
+            }
+        }
+        if CommandLine.arguments.contains("--show-pomodoro") {
+            DispatchQueue.main.async {
+                PomodoroWindowManager.shared.show()
+            }
+        }
+        if CommandLine.arguments.contains("--show-settings") {
+            DispatchQueue.main.async {
+                UtilityWindows.showSettings()
+            }
+        }
+        if AppPresentation.isStorePreview {
+            let layout = NotchCustomization.shared
+            layout.leftShoulder = .search
+            layout.rightShoulder = .clock
+            layout.showFullscreenShoulders = true
+            layout.showMonitoring = true
+            layout.showCPUStat = true
+            layout.showMemoryStat = true
+            layout.showDiskStat = true
+            layout.showBattery = true
+            layout.showNetwork = true
+            layout.showProcesses = false
+            layout.showCalendar = true
+            layout.showWeather = true
+            layout.showNowPlaying = true
+            layout.showAppSlots = true
+            layout.showSearch = true
+            layout.showStatusStrip = false
+            layout.showDevices = false
+            layout.enableAnimations = true
+            ThemeManager.shared.theme = .midnight
+            for index in 0..<AppSlotStore.slotCount {
+                AppSlotStore.shared.clear(index: index)
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.panelController.expandForStorePreview()
+            }
+        }
+        #endif
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -90,11 +154,7 @@ enum OverlayChrome {
     ]
 
     static func resolvedLevel() -> NSWindow.Level {
-        let chosen = NotchCustomization.shared.overlayLevel.nsLevel
-        if shouldYieldToScreenSaver(), NotchCustomization.shared.overlayLevel != .screenSaver {
-            return .popUpMenu
-        }
-        return chosen
+        NotchCustomization.shared.overlayLevel.nsLevel
     }
 
     static func apply(_ window: NSWindow?) {
@@ -138,35 +198,6 @@ enum OverlayChrome {
         }
     }
 
-    private static var screenSaverCache: (at: TimeInterval, value: Bool)?
-
-    /// Stay below a foreign screen-saver / lock window unless the user chose that overlay.
-    private static func shouldYieldToScreenSaver() -> Bool {
-        if NotchCustomization.shared.overlayLevel == .screenSaver {
-            return false
-        }
-        let now = ProcessInfo.processInfo.systemUptime
-        if let cached = screenSaverCache, now - cached.at < 0.35 {
-            return cached.value
-        }
-        let saver = Int(CGWindowLevelForKey(.screenSaverWindow))
-        let ours = Set(NSApp.windows.map(\.windowNumber))
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        guard let info = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            screenSaverCache = (now, false)
-            return false
-        }
-        for window in info {
-            let layer = window[kCGWindowLayer as String] as? Int ?? 0
-            guard layer >= saver else { continue }
-            let number = window[kCGWindowNumber as String] as? Int ?? 0
-            if ours.contains(number) { continue }
-            screenSaverCache = (now, true)
-            return true
-        }
-        screenSaverCache = (now, false)
-        return false
-    }
 }
 
 final class NotchPanel: NSPanel {
@@ -194,28 +225,25 @@ final class NotchPanelController: NSObject {
     private var isEvaluatingPointer = false
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
-    private var pointerPoll: Timer?
+    private var spaceHeartbeat: Timer?
+    private var collapseWork: DispatchWorkItem?
     private var didInstallObservers = false
     private var didInstallMonitors = false
     private var lastSpaceRestick: TimeInterval = 0
     private var revealedByTopBar = false
-    private var lastTopBarFront: TimeInterval = 0
+    private var lastAppliedFrame: NSRect = .zero
+    private var didRequestInitialWidgetPermissions = false
 
     func show() {
         state.geometry = NotchGeometry.current()
         stats.start(interval: NotchCustomization.shared.refreshInterval)
         OutputVolume.shared.start()
-        if NotchCustomization.shared.showSearch { SearchService.shared.start() }
-        ScreenshotManager.shared.onWillCapture = { [weak self] in
-            self?.panel?.orderOut(nil)
-        }
-        ScreenshotManager.shared.onDidCapture = { [weak self] in
-            self?.panel?.orderFrontRegardless()
-            self?.evaluatePointer(NSEvent.mouseLocation)
-        }
+        SystemHUDController.shared.start()
+        if NotchCustomization.shared.assignsSearch { SearchService.shared.start() }
         if LicenseManager.isPro {
             if NotchCustomization.shared.showCalendar { calendar.start() }
             if NotchCustomization.shared.showWeather { weather.start() }
+            requestInitialWidgetPermissionsIfNeeded()
         }
 
         if panel != nil {
@@ -265,6 +293,7 @@ final class NotchPanelController: NSObject {
             .environment(ThemeManager.shared)
             .environment(NotchCustomization.shared)
             .environment(PomodoroService.shared)
+            .environment(NotchAnimationManager.shared)
             .ignoresSafeArea(edges: .all)
         )
         hosting.autoresizingMask = []
@@ -303,7 +332,9 @@ final class NotchPanelController: NSObject {
         applyFrame(expanded: false, animated: false)
         startMouseTracking()
         installObservers()
-        nowPlaying.start()
+        if !AppPresentation.isRunningTests {
+            nowPlaying.start()
+        }
     }
 
     func keepVisible() {
@@ -313,12 +344,18 @@ final class NotchPanelController: NSObject {
         panel.orderFrontRegardless()
     }
 
+    #if DEBUG
+    func expandForStorePreview() {
+        state.isExpanded = true
+        applyFrame(expanded: true, animated: false, bringForward: true)
+    }
+    #endif
+
     private func bindOverlay() {
         flyout.notchPanel = panel
         flyout.stats = stats
         flyout.calendar = calendar
         flyout.weather = weather
-        flyout.nowPlaying = nowPlaying
         flyout.apps = apps
         peek.notchPanel = panel
         peek.onVisibilityChange = { [weak self] _ in
@@ -391,24 +428,23 @@ final class NotchPanelController: NSObject {
             self?.evaluatePointer(NSEvent.mouseLocation)
             return event
         }
-        startPointerPoll()
+        startSpaceHeartbeat()
     }
 
-    private func startPointerPoll() {
-        guard pointerPoll == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 90.0, target: self, selector: #selector(pollPointer), userInfo: nil, repeats: true)
+    private func startSpaceHeartbeat() {
+        guard spaceHeartbeat == nil else { return }
+        let timer = Timer(timeInterval: 1.0, target: self, selector: #selector(pollSpace), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
-        pointerPoll = timer
+        spaceHeartbeat = timer
     }
 
-    @objc private func pollPointer() {
+    @objc private func pollSpace() {
         let next = NotchGeometry.current()
         if next != state.geometry {
             state.geometry = next
             applyFrame(expanded: state.isExpanded, animated: false)
         }
         restickIfOffActiveSpace()
-        evaluatePointer(NSEvent.mouseLocation)
     }
 
     private func restickIfOffActiveSpace() {
@@ -464,20 +500,22 @@ final class NotchPanelController: NSObject {
             let overPanel = state.geometry.holdZone(panelFrame: panelFrame).contains(point)
             if overPanel || overFlyout || overPeek || overBridge {
                 ignoreActivationUntilExit = false
+                cancelCollapse()
                 if !overPeek, !overPanel { peek.dismiss() }
                 setExpanded(true)
                 return
             }
             ignoreActivationUntilExit = overIsland
-            collapseNow()
+            scheduleCollapse()
             return
         }
 
         if flyout.isVisible || peek.isVisible {
             if overFlyout || overPeek || overBridge || overIsland {
+                cancelCollapse()
                 return
             }
-            collapseNow()
+            scheduleCollapse()
             return
         }
 
@@ -489,6 +527,7 @@ final class NotchPanelController: NSObject {
         }
 
         if overIsland {
+            cancelCollapse()
             setExpanded(true)
         }
     }
@@ -496,20 +535,14 @@ final class NotchPanelController: NSObject {
     /// Bring the island onto this Space while the pointer is in the menu-bar strip.
     private func revealForTopBarHover() {
         guard let panel else { return }
-        let now = ProcessInfo.processInfo.systemUptime
         if !revealedByTopBar {
             revealedByTopBar = true
-            lastSpaceRestick = now
-            lastTopBarFront = now
+            lastSpaceRestick = ProcessInfo.processInfo.systemUptime
             OverlayChrome.followActiveSpace(panel)
-            applyFrame(expanded: state.isExpanded, animated: false)
-            panel.orderFrontRegardless()
+            applyFrame(expanded: state.isExpanded, animated: false, bringForward: true)
             return
         }
-        guard now - lastTopBarFront > 0.2 else { return }
-        lastTopBarFront = now
-        OverlayChrome.apply(panel)
-        panel.orderFrontRegardless()
+        restickIfOffActiveSpace()
     }
 
     private func handleDrag(_ targeted: Bool) {
@@ -528,26 +561,47 @@ final class NotchPanelController: NSObject {
     private func setExpanded(_ expanded: Bool) {
         isPointerInside = expanded
         guard expanded else {
-            collapseNow()
+            scheduleCollapse()
             return
         }
+        cancelCollapse()
         guard !state.isExpanded else { return }
-        setOverlayFront(true)
+        NotchAnimationManager.shared.applyExpandAnimation()
+        setOverlayFront()
         state.isExpanded = true
-        applyFrame(expanded: true, animated: true)
+        applyFrame(expanded: true, animated: true, bringForward: true)
+    }
+
+    private func scheduleCollapse() {
+        guard collapseWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.collapseWork = nil
+            self?.collapseNow()
+        }
+        collapseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
+    }
+
+    private func cancelCollapse() {
+        collapseWork?.cancel()
+        collapseWork = nil
     }
 
     private func collapseNow() {
+        #if DEBUG
+        guard !AppPresentation.isStorePreview else { return }
+        #endif
+        cancelCollapse()
         isPointerInside = false
         flyout.dismiss()
         peek.dismiss()
         guard state.isExpanded else { return }
+        NotchAnimationManager.shared.applyContractAnimation()
         state.isExpanded = false
         applyFrame(expanded: false, animated: true)
-        setOverlayFront(false)
     }
 
-    private func setOverlayFront(_ front: Bool) {
+    private func setOverlayFront() {
         guard let panel else { return }
         OverlayChrome.apply(panel)
         panel.ignoresMouseEvents = false
@@ -557,7 +611,7 @@ final class NotchPanelController: NSObject {
         UtilityWindows.keepAboveOverlay()
     }
 
-    private func applyFrame(expanded: Bool, animated: Bool) {
+    private func applyFrame(expanded: Bool, animated: Bool, bringForward: Bool = false) {
         guard let panel else { return }
         let header = expanded ? state.geometry.wideCollapsedSize.height : state.geometry.collapsedSize.height
         let height = NotchCustomization.shared.expandedPanelHeight(
@@ -565,11 +619,30 @@ final class NotchPanelController: NSObject {
             isPro: LicenseManager.isPro
         )
         let frame = state.geometry.frame(expanded: expanded, expandedHeight: height)
-        OverlayChrome.apply(panel)
-        panel.setFrame(frame, display: true, animate: false)
-        panel.setFrameOrigin(NSPoint(x: frame.minX, y: frame.minY))
+        let frameChanged = !lastAppliedFrame.equalTo(frame)
+        if bringForward || !panel.isVisible {
+            OverlayChrome.apply(panel)
+        }
+        if frameChanged {
+            let shouldAnimate = animated
+                && NotchAnimationManager.shared.enabled
+                && lastAppliedFrame.width > 1
+            lastAppliedFrame = frame
+            if shouldAnimate {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = NotchAnimationManager.shared.expandDuration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    context.allowsImplicitAnimation = true
+                    panel.animator().setFrame(frame, display: true)
+                }
+            } else {
+                panel.setFrame(frame, display: true, animate: false)
+            }
+        }
         panel.alphaValue = 1
-        panel.orderFrontRegardless()
+        if bringForward || !panel.isVisible {
+            panel.orderFrontRegardless()
+        }
         if let container = panel.contentView as? DragAwareContainer {
             container.isExpanded = expanded
             container.collapsedBarHeight = header
@@ -578,6 +651,7 @@ final class NotchPanelController: NSObject {
             container.needsLayout = true
             container.layoutSubtreeIfNeeded()
         }
+        SystemHUDController.shared.place(under: panel.frame)
     }
 
     @objc private func screensChanged() {
@@ -602,10 +676,44 @@ final class NotchPanelController: NSObject {
         if !NotchCustomization.shared.showAppPreviews {
             peek.dismiss()
         }
-        if NotchCustomization.shared.showSearch { SearchService.shared.start() }
+        if NotchCustomization.shared.assignsSearch { SearchService.shared.start() }
         if LicenseManager.isPro {
-            if NotchCustomization.shared.showCalendar { calendar.start() }
-            if NotchCustomization.shared.showWeather { weather.start() }
+            if NotchCustomization.shared.showCalendar {
+                calendar.start()
+            } else {
+                calendar.stop()
+            }
+            if NotchCustomization.shared.showWeather {
+                weather.start()
+            } else {
+                weather.stop()
+            }
+            requestInitialWidgetPermissionsIfNeeded()
+        } else {
+            calendar.stop()
+            weather.stop()
+        }
+    }
+
+    private func requestInitialWidgetPermissionsIfNeeded() {
+        let layout = NotchCustomization.shared
+        guard LicenseManager.isPro,
+              !didRequestInitialWidgetPermissions,
+              !AppPresentation.isRunningTests,
+              !AppPresentation.isStorePreview,
+              layout.showCalendar || layout.showWeather
+        else { return }
+
+        didRequestInitialWidgetPermissions = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard let self else { return }
+            if layout.showCalendar {
+                await calendar.requestAccessFromUser()
+            }
+            if layout.showWeather {
+                weather.requestAccessIfNeeded()
+            }
         }
     }
 
@@ -706,6 +814,7 @@ final class DragAwareContainer: NSView {
             )
             slotsRow.reloadIfNeeded()
         }
+
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -719,19 +828,26 @@ final class DragAwareContainer: NSView {
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let operation = dropOperation(for: sender)
+        guard !operation.isEmpty else { return [] }
         peek?.dismiss()
         onDragging?(true)
         needsLayout = true
         layoutSubtreeIfNeeded()
         window?.orderFrontRegardless()
-        return PasteboardApps.dropOperation(for: sender)
+        return operation
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let operation = dropOperation(for: sender)
+        guard !operation.isEmpty else {
+            onDragging?(false)
+            return []
+        }
         onDragging?(true)
         needsLayout = true
         layoutSubtreeIfNeeded()
-        return PasteboardApps.dropOperation(for: sender)
+        return operation
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -749,11 +865,9 @@ final class DragAwareContainer: NSView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         defer { onDragging?(false) }
         layoutSubtreeIfNeeded()
-        if let slotsRow, !slotsRow.isHidden {
-            let local = convert(sender.draggingLocation, from: nil)
-            if slotsRow.frame.insetBy(dx: -8, dy: -8).contains(local) {
-                return slotsRow.acceptDrop(sender)
-            }
+        let local = convert(sender.draggingLocation, from: nil)
+        if let slotsRow, !slotsRow.isHidden, slotsRow.frame.insetBy(dx: -8, dy: -8).contains(local) {
+            return slotsRow.acceptDrop(sender)
         }
         guard let store else { return false }
         let index: Int
@@ -763,5 +877,11 @@ final class DragAwareContainer: NSView {
             index = store.slotIndex(atWindowPoint: sender.draggingLocation) ?? store.hoveredSlot ?? 0
         }
         return store.handleDragging(sender, onto: index)
+    }
+
+    private func dropOperation(for sender: NSDraggingInfo) -> NSDragOperation {
+        store?.canHandle(sender.draggingPasteboard) == true
+            ? PasteboardApps.dropOperation(for: sender)
+            : []
     }
 }

@@ -18,9 +18,13 @@ final class OutputVolume {
     }
 
     private var deviceID: AudioDeviceID = 0
+    var onHardwareChange: (() -> Void)?
+
     private var started = false
     private var scrubbing = false
     private var timer: Timer?
+    private var lastAnnouncedLevel: Double?
+    private var lastAnnouncedMute: Bool?
 
     private let kAudioHardwareServiceDeviceProperty_VirtualMainVolume = AudioObjectPropertySelector(0x766D766C) // 'vmvl'
 
@@ -83,7 +87,7 @@ final class OutputVolume {
         deviceID = status == noErr ? device : 0
     }
 
-    fileprivate func readFromHardware() {
+    func readFromHardware() {
         read()
     }
 
@@ -96,6 +100,13 @@ final class OutputVolume {
         }
         if let volume = readVolume() {
             level = Double(volume)
+        }
+        let changed = lastAnnouncedLevel.map { abs($0 - level) > 0.008 } ?? false
+            || lastAnnouncedMute.map { $0 != isMuted } ?? false
+        lastAnnouncedLevel = level
+        lastAnnouncedMute = isMuted
+        if changed {
+            onHardwareChange?()
         }
     }
 

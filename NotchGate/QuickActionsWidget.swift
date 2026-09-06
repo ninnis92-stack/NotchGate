@@ -129,12 +129,17 @@ final class AppSlotsRowView: NSView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         peek?.dismiss()
+        guard store?.canHandle(sender.draggingPasteboard) == true else { return [] }
         onDragging?(true)
         highlight(sender)
         return .move
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard store?.canHandle(sender.draggingPasteboard) == true else {
+            onDragging?(false)
+            return []
+        }
         onDragging?(true)
         highlight(sender)
         return .move

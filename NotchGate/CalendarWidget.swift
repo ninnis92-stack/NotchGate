@@ -26,7 +26,7 @@ final class CalendarService {
 
     func start() {
         installChangeObserver()
-        Task { await requestAndLoad() }
+        Task { await loadIfAuthorized(prompt: false) }
         guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -47,12 +47,6 @@ final class CalendarService {
         }
     }
 
-    func openSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     private func installChangeObserver() {
         guard changeObserver == nil else { return }
         changeObserver = NotificationCenter.default.addObserver(
@@ -66,7 +60,12 @@ final class CalendarService {
         }
     }
 
-    private func requestAndLoad() async {
+    func requestAccessFromUser() async {
+        await loadIfAuthorized(prompt: true)
+    }
+
+    /// Called once during Pro onboarding. Glance views never initiate permission prompts.
+    private func loadIfAuthorized(prompt: Bool) async {
         let status = EKEventStore.authorizationStatus(for: .event)
         if canReadEvents(status) {
             authorizationDenied = false
@@ -75,6 +74,7 @@ final class CalendarService {
         } else if status == .notDetermined {
             authorizationNotDetermined = true
             authorizationDenied = false
+            guard prompt else { return }
             let granted = await requestAccess()
             authorizationNotDetermined = false
             authorizationDenied = !granted
