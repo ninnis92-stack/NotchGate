@@ -3,9 +3,9 @@ import SwiftUI
 
 enum MenuBarShortcuts {
     static func openWiFi() {
-        open("x-apple.systempreferences:com.apple.wifi-settings-extension")
-            || open("x-apple.systempreferences:com.apple.Network-Settings.extension")
-            || NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/PreferencePanes/Network.prefPane"))
+        if open("x-apple.systempreferences:com.apple.wifi-settings-extension") { return }
+        if open("x-apple.systempreferences:com.apple.Network-Settings.extension") { return }
+        _ = NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Library/PreferencePanes/Network.prefPane"))
     }
 
     static func openBattery() {

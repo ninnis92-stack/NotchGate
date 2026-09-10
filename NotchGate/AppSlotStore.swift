@@ -71,7 +71,7 @@ struct PinnedApp: Codable, Equatable, Identifiable {
     func launch() {
         if let running = runningInstance() {
             running.unhide()
-            running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            running.activate(options: [.activateAllWindows])
             return
         }
         if let bookmark, let url = SecurityScoped.resolve(bookmark), let access = ScopedFileAccess(url: url) {
@@ -105,10 +105,9 @@ struct PinnedApp: Codable, Equatable, Identifiable {
     }
 
     func revealInFinder() {
-        let revealed = withResolvedURL { url in
+        withResolvedURL { url in
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
-        if revealed == nil { NSSound.beep() }
     }
 
     var isInstalled: Bool {
@@ -317,19 +316,6 @@ final class AppSlotStore {
         }
     }
 
-    func handleProviders(_ providers: [NSItemProvider], onto index: Int) -> Bool {
-        let sourceSlot = draggingIndex
-        draggingIndex = nil
-
-        if sourceSlot != nil {
-            if let sourceSlot {
-                move(from: sourceSlot, to: index)
-            }
-            return true
-        }
-        return false
-    }
-
     func slotIndex(atWindowPoint point: NSPoint) -> Int? {
         let frame = dropRowFrame
         guard frame.width > 8 else { return nil }
@@ -364,61 +350,6 @@ final class AppSlotStore {
             return true
         }
         return false
-    }
-
-    func itemProvider(for index: Int) -> NSItemProvider {
-        let provider = NSItemProvider()
-        provider.registerDataRepresentation(forTypeIdentifier: Self.slotType, visibility: .ownProcess) { completion in
-            completion(Data("\(index)".utf8), nil)
-            return nil
-        }
-        return provider
-    }
-
-    private static func loadDroppedURL(from provider: NSItemProvider, completion: @escaping (URL?) -> Void) {
-        let identifiers = [
-            UTType.fileURL.identifier,
-            UTType.application.identifier,
-            UTType.applicationBundle.identifier,
-            "com.apple.application"
-        ]
-        if let type = identifiers.first(where: { provider.hasItemConformingToTypeIdentifier($0) }) {
-            provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
-                if let url = coerceURL(item) {
-                    completion(url)
-                    return
-                }
-                provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
-                    completion(url)
-                }
-            }
-            return
-        }
-        if provider.canLoadObject(ofClass: URL.self) {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                completion(url)
-            }
-            return
-        }
-        completion(nil)
-    }
-
-    static func coerceURL(_ item: NSSecureCoding?) -> URL? {
-        if let url = item as? URL { return url }
-        if let url = item as? NSURL { return url as URL }
-        if let data = item as? Data {
-            if let url = URL(dataRepresentation: data, relativeTo: nil) { return url }
-            if let string = String(data: data, encoding: .utf8) {
-                return URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines))
-                    ?? URL(fileURLWithPath: string)
-            }
-        }
-        if let string = item as? String {
-            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let url = URL(string: trimmed), url.isFileURL { return url }
-            if trimmed.hasPrefix("/") { return URL(fileURLWithPath: trimmed) }
-        }
-        return nil
     }
 
     private func persist() {
@@ -515,178 +446,6 @@ enum PasteboardApps {
         return index
     }
 
-    static func firstApplication(from pasteboard: NSPasteboard) -> URL? {
-        let bundleTypes: [NSPasteboard.PasteboardType] = [
-            .init("com.apple.application-bundle-identifier"),
-            .init("com.apple.application"),
-            .init("com.apple.application-bundle")
-        ]
-        for type in bundleTypes {
-            if let bundleID = pasteboard.string(forType: type)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                return url
-            }
-        }
-        for extraType in ["com.apple.dock.extra", "com.apple.dock.tile"] {
-            let type = NSPasteboard.PasteboardType(extraType)
-            if let extra = pasteboard.propertyList(forType: type), let url = application(fromPlist: extra) {
-                return url
-            }
-            if let extra = pasteboard.data(forType: type), let url = application(fromDroppedData: extra) {
-                return url
-            }
-        }
-
-        let urlOptions: [[NSPasteboard.ReadingOptionKey: Any]] = [
-            [
-                .urlReadingFileURLsOnly: true,
-                .urlReadingContentsConformToTypes: [UTType.application.identifier, UTType.applicationBundle.identifier, UTType.bundle.identifier]
-            ],
-            [.urlReadingFileURLsOnly: true],
-            [:]
-        ]
-        for options in urlOptions {
-            if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
-               let app = urls.compactMap({ $0.resolvedApplicationURL() }).first {
-                return app
-            }
-        }
-        if let filenames = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("NSFilenamesPboardType")) as? [String],
-           let app = filenames.map(URL.init(fileURLWithPath:)).compactMap({ $0.resolvedApplicationURL() }).first {
-            return app
-        }
-        if let names = pasteboard.propertyList(forType: NSPasteboard.PasteboardType("Apple files promise pasteboard type")) as? [String] {
-            for name in names {
-                if let url = application(fromDroppedString: name) { return url }
-            }
-        }
-        for type in pasteboard.types ?? [] {
-            if let plist = pasteboard.propertyList(forType: type), let url = application(fromPlist: plist) {
-                return url
-            }
-            if let string = pasteboard.string(forType: type), let url = application(fromDroppedString: string) {
-                return url
-            }
-            if let data = pasteboard.data(forType: type), let url = application(fromDroppedData: data) {
-                return url
-            }
-        }
-        for item in pasteboard.pasteboardItems ?? [] {
-            for type in item.types {
-                if let plist = item.propertyList(forType: type), let url = application(fromPlist: plist) {
-                    return url
-                }
-                if let string = item.string(forType: type), let url = application(fromDroppedString: string) {
-                    return url
-                }
-                if let data = item.data(forType: type), let url = application(fromDroppedData: data) {
-                    return url
-                }
-            }
-        }
-        return nil
-    }
-
-    private static func application(fromPlist plist: Any) -> URL? {
-        if let dict = plist as? [String: Any] {
-            let keys = ["bundle-identifier", "bundle identifier", "bundleIdentifier", "CFBundleIdentifier", "id", "path", "url"]
-            for key in keys {
-                if let id = dict[key] as? String {
-                    if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) {
-                        return url
-                    }
-                    if let url = application(fromDroppedString: id) {
-                        return url
-                    }
-                }
-            }
-            if let name = (dict["name"] as? String) ?? (dict["title"] as? String),
-               let url = applicationURL(named: name) {
-                return url
-            }
-            for value in dict.values {
-                if let url = application(fromPlist: value) { return url }
-            }
-        }
-        if let array = plist as? [Any] {
-            for value in array {
-                if let url = application(fromPlist: value) { return url }
-            }
-        }
-        if let string = plist as? String {
-            return application(fromDroppedString: string)
-        }
-        if let data = plist as? Data {
-            return application(fromDroppedData: data)
-        }
-        return nil
-    }
-
-    private static func application(fromDroppedData data: Data) -> URL? {
-        if let unarchived = try? NSKeyedUnarchiver.unarchivedObject(
-            ofClasses: [NSDictionary.self, NSArray.self, NSString.self, NSNumber.self, NSURL.self],
-            from: data
-        ), let url = application(fromPlist: unarchived) {
-            return url
-        }
-        if let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-           let url = application(fromPlist: plist) {
-            return url
-        }
-        if let url = URL(dataRepresentation: data, relativeTo: nil)?.resolvedApplicationURL() {
-            return url
-        }
-        if let string = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) {
-            return application(fromDroppedString: string)
-        }
-        return nil
-    }
-
-    fileprivate static func application(fromDroppedString string: String) -> URL? {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: trimmed), let app = url.resolvedApplicationURL() {
-            return app
-        }
-        let decoded = trimmed.removingPercentEncoding ?? trimmed
-        let path = decoded.replacingOccurrences(of: "file://", with: "")
-        if path.contains("."), !path.contains("/"), !path.contains(" "),
-           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: path) {
-            return url
-        }
-        if let match = path.range(of: #"^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$"#, options: .regularExpression),
-           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: String(path[match])) {
-            return url
-        }
-        if let url = URL(string: path), let app = url.resolvedApplicationURL() {
-            return app
-        }
-        if path.hasPrefix("/") || path.hasSuffix(".app") {
-            let resolved = path.hasPrefix("/") ? path : "/Applications/\(path)"
-            if let app = URL(fileURLWithPath: resolved).resolvedApplicationURL() {
-                return app
-            }
-        }
-        return applicationURL(named: path)
-    }
-
-    private static func applicationURL(named name: String) -> URL? {
-        let cleaned = name.replacingOccurrences(of: ".app", with: "")
-        guard !cleaned.isEmpty, cleaned.count < 80 else { return nil }
-        let roots = [
-            "/Applications",
-            "/System/Applications",
-            "/System/Applications/Utilities",
-            "/System/Cryptexes/App/System/Applications",
-            NSHomeDirectory() + "/Applications"
-        ]
-        for root in roots {
-            let url = URL(fileURLWithPath: root).appendingPathComponent("\(cleaned).app")
-            if FileManager.default.fileExists(atPath: url.path) {
-                return url
-            }
-        }
-        return nil
-    }
 }
 
 extension URL {
