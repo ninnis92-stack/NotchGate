@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Option 3: Abstract "Gate" Symbol (Stylized G/N) -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: Transparent -->
+  <rect width="1024" height="1024" fill="none"/>
+  
+  <!-- Stylized "G" that resembles notch opening -->
+  <path d="M 320 384 L 704 384 L 704 640 L 512 640 L 512 576 L 640 576 L 640 448 L 384 448 L 384 576 L 448 576 L 448 640 L 256 640 L 256 384 Z" fill="#1C1C1E"/>
+  
+  <!-- Accent: Teal line through center -->
+  <line x1="384" y1="512" x2="640" y2="512" stroke="#008080" stroke-width="16" stroke-linecap="round"/>
+  
+  <!-- Subtle "N" shape overlay (optional) -->
+  <path d="M 448 448 L 576 448 L 576 576 L 448 576 Z" fill="none" stroke="#008080" stroke-width="8" opacity="0.5"/>
+</svg>

@@ -1,0 +1,30 @@
+---
+description: Locked NotchGate island look and overlay behavior (do not regress)
+alwaysApply: true
+---
+
+# Command center look (locked)
+
+This overlay look is the baseline. Do not "improve" it by hiding, shrinking, or raising the window in ways that already failed.
+
+## Visible island
+
+- Always-on command center at the camera: collapsed black island with left/right **shoulders**, CPU/clock (or chosen widgets), settings gear.
+- Collapsed size is the wide island (`notch + shoulders + gear`), **never** camera-cutout-only width.
+- Collapsed **height** is the hardware notch / menu-bar strip only. No chin. No collapsed bottom shadow (`flushToTopBar` when not expanded). Tight collapsed bottom radius (~8pt).
+- Shoulder **shape** always present. Widget **content** stays on in Full Screen unless the user turns glance widgets off.
+
+## Overlay (verified)
+
+- `NSPanel` with `isFloatingPanel = true`, then set `window.level` **after** that flag. Floating-first resets level to **3** and Full Screen apps cover the island.
+- Default level is **pop-up menu (CG layer 101)**. Confirm with on-screen window list after overlay changes.
+- Join Full Screen: `canJoinAllSpaces`, `fullScreenAuxiliary`, `canJoinAllApplications`, sticky tags. Follow the active Space when it changes.
+- Hover the **island** to expand. Hover the **top strip** only to pull the island forward if covered. Do not widen the expand hotspot to the full menu bar.
+
+## Do not reintroduce
+
+- `.screenSaver` / assistive-tech levels, CGS `SetWindowLevel`, `.stationary`
+- MediaRemote `MRMediaRemoteGetNowPlayingInfo` (Swift trap crash)
+- Stealing ⌘Space (search is ⌘⇧F)
+- Apps dropdown, top-corner ears, Pro lock overlays on the island
+- 90Hz window-list pinning, lying `isKeyWindow`, always-mounted expanded body with `maxHeight: 0`

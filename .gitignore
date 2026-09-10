@@ -1,0 +1,17 @@
+.DS_Store
+
+# Xcode and Swift build output
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# Local signing and credentials
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.key
+*.pem
+.env
+.env.*
