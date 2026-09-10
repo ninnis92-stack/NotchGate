@@ -364,7 +364,6 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = NO;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NotchGate reads Music and Spotify so it can show what’s playing in the notch.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © NotchLens. All rights reserved.";
@@ -407,7 +406,6 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NotchGate reads Music and Spotify so it can show what’s playing in the notch.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © NotchLens. All rights reserved.";

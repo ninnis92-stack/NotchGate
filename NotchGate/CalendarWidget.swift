@@ -70,7 +70,7 @@ final class CalendarService {
         await loadIfAuthorized(prompt: true)
     }
 
-    /// Expanding the island must not show a Calendar prompt. Ask only from the flyout.
+    /// Request Calendar access only after the user interacts with Calendar.
     private func loadIfAuthorized(prompt: Bool) async {
         let status = EKEventStore.authorizationStatus(for: .event)
         if canReadEvents(status) {

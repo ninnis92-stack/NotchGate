@@ -12,7 +12,7 @@ The Free features work without purchase. NotchGate Pro is a one-time non-consuma
 You may not reverse engineer, redistribute, or rent the app except as allowed by law. You may not use NotchGate to violate other apps’ terms or to capture content you do not have the right to capture.
 
 4. DATA
-The app processes calendar, location, and media information locally as described in the Privacy Policy. If Weather is enabled, the app sends the device coordinates returned by macOS Location Services to Open-Meteo for a forecast; NotchLens does not operate a NotchGate cloud account.
+The app processes calendar and location information locally as described in the Privacy Policy. If Weather is enabled, the app sends the device coordinates returned by macOS Location Services to Open-Meteo for a forecast; NotchLens does not operate a NotchGate cloud account.
 
 5. DISCLAIMER
 The app is provided “as is.” Overlay behavior can vary by macOS version, Full Screen apps, and display hardware. NotchLens is not liable for lost data or interruption beyond what applicable law requires.

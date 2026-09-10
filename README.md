@@ -6,14 +6,13 @@ NotchGate is a native macOS command-center overlay for Macs with a camera notch.
 
 - Expandable notch overlay with CPU, memory, battery, disk, network, and status widgets.
 - Calendar and local weather widgets with direct interaction inside the main panel.
-- Read-only Now Playing metadata.
 - Pomodoro timer and HUDs.
 - Spotlight-style app search.
 - Pinned app shortcuts that launch apps, support internal reordering, and provide repair/removal actions.
 - Custom themes and layout settings for Pro users.
 - StoreKit non-consumable Pro upgrade with purchase restoration through the user’s Apple ID.
 
-The app does not capture screenshots, accept arbitrary dropped files, enumerate active apps or connected devices, control media playback, or install helper software.
+The app does not capture screenshots, accept arbitrary dropped files, enumerate active apps or connected devices, automate other applications, or install helper software.
 
 ## Requirements
 

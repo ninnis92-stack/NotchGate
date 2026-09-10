@@ -65,7 +65,6 @@ final class OutputVolume {
         if !isMuted {
             writeVolume(Float(level))
         }
-        writeSystemVolumeScript()
     }
 
     private func refreshDevice() {
@@ -141,14 +140,6 @@ final class OutputVolume {
         for channel: UInt32 in 3...8 {
             setScalar(selector: kAudioDevicePropertyVolumeScalar, element: channel, value: value)
         }
-    }
-
-    private func writeSystemVolumeScript() {
-        let percent = Int((min(max(level, 0), 1) * 100).rounded())
-        let muted = isMuted || percent == 0 ? "true" : "false"
-        var error: NSDictionary?
-        NSAppleScript(source: "set volume output volume \(percent) output muted \(muted)")?
-            .executeAndReturnError(&error)
     }
 
     private func readMute() -> Bool? {

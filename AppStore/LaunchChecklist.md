@@ -12,7 +12,7 @@ Work top to bottom. Do not submit until Archive succeeds.
 - [x] Privacy Nutrition file `PrivacyInfo.xcprivacy`
 - [x] Encryption flag: uses non-exempt encryption = NO
 - [x] Deployment macOS 14.0
-- [x] App Sandbox **on** (calendar, location, network client, read-only Apple Events for Music/Spotify)
+- [x] App Sandbox **on** (calendar, location, and network client only)
 - [ ] Adversarial/unit tests after feature removal: `NotchGateTests` (Product → Test)
 
 ## App Store Connect
@@ -36,7 +36,7 @@ Work top to bottom. Do not submit until Archive succeeds.
 - [ ] Remove or ignore the StoreKit config for Archive (scheme already uses it only on Run)
 
 ## Review notes (paste in App Store Connect)
-NotchGate is a menu-bar accessory (`LSUIElement`) with an overlay at the camera notch. Hover the island to expand. Pro is a one-time IAP. When Pro is active, NotchGate requests Calendar and Location permission once at launch if their widgets are enabled. The widget flyouts are glance-only and do not initiate permission prompts.
+NotchGate is a menu-bar accessory (`LSUIElement`) with an overlay at the camera notch. Hover the island to expand. Pro is a one-time IAP. Calendar and Weather are interactive directly in the main expanded panel; permissions are requested only after the user interacts with the relevant widget. There are no secondary dropdowns, screenshot tools, file-drop targets, app/device enumeration features, or media automation.
 
 ## Do not submit until
 Island hover is stable, Full Screen does not flicker, and you have a real privacy URL plus a signed Archive.

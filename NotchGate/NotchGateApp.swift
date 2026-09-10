@@ -202,7 +202,6 @@ final class NotchPanelController: NSObject {
     private let stats = SystemMonitor()
     private let calendar = CalendarService()
     private let weather = WeatherService()
-    private let nowPlaying = NowPlayingService()
     private let apps = AppSlotStore.shared
     private let flyout = WidgetFlyoutController()
     private var isPointerInside = false
@@ -240,7 +239,6 @@ final class NotchPanelController: NSObject {
                 applyFrame(expanded: false, animated: false)
             }
             startMouseTracking()
-            nowPlaying.start()
             return
         }
 
@@ -264,7 +262,6 @@ final class NotchPanelController: NSObject {
                 stats: stats,
                 calendar: calendar,
                 weather: weather,
-                nowPlaying: nowPlaying,
                 apps: apps,
                 flyout: flyout,
                 onHoverChange: { _ in },
@@ -305,7 +302,6 @@ final class NotchPanelController: NSObject {
         applyFrame(expanded: false, animated: false)
         startMouseTracking()
         installObservers()
-        nowPlaying.start()
     }
 
     func keepVisible() {

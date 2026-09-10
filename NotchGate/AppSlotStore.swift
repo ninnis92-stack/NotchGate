@@ -484,7 +484,6 @@ final class AppSlotStore {
             pinned(bundleID: "com.apple.finder", name: "Finder"),
             pinned(bundleID: "com.apple.Safari", name: "Safari"),
             pinned(bundleID: "com.apple.MobileSMS", name: "Messages"),
-            pinned(bundleID: "com.apple.Music", name: "Music"),
             nil,
             nil
         ]

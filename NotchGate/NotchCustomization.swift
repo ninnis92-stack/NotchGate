@@ -153,7 +153,7 @@ final class NotchCustomization {
     /// When on, the island stays on Full Screen spaces at the chosen overlay level.
     var alwaysShowInFullScreen: Bool { didSet { persist("keepIslandInFullScreen", alwaysShowInFullScreen) } }
     var overlayLevel: NotchOverlayLevel { didSet { persist("overlayLevel", overlayLevel.rawValue) } }
-    /// When off, Settings and Pro stay above the island and its dropdown.
+    /// When off, Settings and Pro stay above the island.
     var overlaySettingsWindows: Bool { didSet { persist("overlaySettingsWindows", overlaySettingsWindows) } }
 
 
@@ -162,7 +162,6 @@ final class NotchCustomization {
     var showStatusStrip: Bool { didSet { persist("showStatusStrip", showStatusStrip) } }
     var showCalendar: Bool { didSet { persist("showCalendar", showCalendar) } }
     var showWeather: Bool { didSet { persist("showWeather", showWeather) } }
-    var showNowPlaying: Bool { didSet { persist("showNowPlaying", showNowPlaying) } }
     var showPomodoro: Bool { didSet { persist("showPomodoro", showPomodoro) } }
     var showSystemHUDs: Bool { didSet { persist("showSystemHUDs", showSystemHUDs) } }
     var pomodoroDuration: TimeInterval { didSet { persist("pomodoroDuration", pomodoroDuration) } }
@@ -203,7 +202,6 @@ final class NotchCustomization {
         if showMonitoring { rows.append(64) }
         if showNetwork, isPro { rows.append(36) }
         if showAppSlots { rows.append(appSlotsHeight) }
-        if showNowPlaying { rows.append(Self.nowPlayingRowHeight) }
         if showStatusStrip { rows.append(28) }
         if showCalendar, isPro { rows.append(32) }
         if showWeather, isPro { rows.append(32) }
@@ -224,11 +222,9 @@ final class NotchCustomization {
         var y = collapsedBar + 2
         if showMonitoring { y += 64 + 8 }
         if showNetwork, isPro { y += 36 + 8 }
-        if showNowPlaying { y += Self.nowPlayingRowHeight + 8 }
         return y
     }
 
-    static let nowPlayingRowHeight: CGFloat = 62
 
     private init() {
         let defaults = UserDefaults.standard
@@ -260,7 +256,6 @@ final class NotchCustomization {
         showStatusStrip = defaults.object(forKey: "notch.showStatusStrip") as? Bool ?? false
         showCalendar = defaults.object(forKey: "notch.showCalendar") as? Bool ?? true
         showWeather = defaults.object(forKey: "notch.showWeather") as? Bool ?? true
-        showNowPlaying = defaults.object(forKey: "notch.showNowPlaying") as? Bool ?? true
         showPomodoro = defaults.object(forKey: "notch.showPomodoro") as? Bool ?? true
         showSystemHUDs = defaults.object(forKey: "notch.showSystemHUDs") as? Bool ?? true
         pomodoroDuration = defaults.object(forKey: "notch.pomodoroDuration") as? Double ?? 25 * 60

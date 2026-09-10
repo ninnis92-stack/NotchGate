@@ -9,14 +9,13 @@ NotchGate
 Command center for the notch
 
 ## Promotional text (170 characters, optional)
-Always-on island at the camera: CPU, Now Playing metadata, apps, Pomodoro, and HUDs. Unlock Pro once for calendar, weather, and live stats.
+Always-on island at the camera: CPU, apps, Pomodoro, and HUDs. Unlock Pro once for calendar, weather, and live stats.
 
 ## Description
 NotchGate is a command center that lives on the MacBook camera housing. It stays visible in Full Screen. Hover the island to expand. Hover the top of the display only if something covered it.
 
 Free
 • Collapsed island with glance widgets (CPU/memory, clock, Pomodoro, and more)
-• Now Playing with volume
 • App slots and search
 • Pomodoro timer (analog clock, countdown, draggable window)
 • Volume and brightness HUD under the island
@@ -31,7 +30,7 @@ NotchGate Pro — $9.99 one time, no subscription
 NotchGate is built as a utility overlay, not a Dynamic Island clone. Search is ⌘⇧F.
 
 ## Keywords (100 characters max, comma-separated)
-notch,hud,overlay,pomodoro,cpu,now playing,menu bar,macbook,timer,calendar
+notch,hud,overlay,pomodoro,cpu,menu bar,macbook,timer,calendar,weather
 
 ## Category
 Primary: Utilities  

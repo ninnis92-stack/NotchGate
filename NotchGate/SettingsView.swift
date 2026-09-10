@@ -142,7 +142,7 @@ struct SettingsView: View {
             Toggle(isOn: $layout.overlaySettingsWindows) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Sit above Settings and Pro")
-                    Text("Off keeps NotchGate Settings and Pro in front of the island and its dropdown.")
+                    Text("Off keeps NotchGate Settings and Pro in front of the island.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -191,7 +191,6 @@ struct SettingsView: View {
                 .toggleStyle(.checkbox)
                 .padding(.leading, 30)
             }
-            moduleRow("music.note", "Now Playing", "Track and artist information.", $layout.showNowPlaying)
             moduleRow("square.grid.2x2", "Apps", "Click an icon to open it. Right-click for Open, Force Quit, Show in Finder, or Remove.", $layout.showAppSlots)
             if layout.showAppSlots {
                 appsPreferences(layout: layout)
@@ -381,7 +380,7 @@ struct SettingsView: View {
                     Spacer()
                 }
                 if !license.isPro {
-                    Text("Free includes the island, CPU and memory, apps, Now Playing, search, HUDs, and Pomodoro.")
+                    Text("Free includes the island, CPU and memory, apps, search, HUDs, and Pomodoro.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

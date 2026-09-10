@@ -49,7 +49,6 @@ struct PricingView: View {
             row("Notch overlay", free: true, pro: true)
             row("CPU & memory", free: true, pro: true)
             row("Apps & search", free: true, pro: true)
-            row("Now Playing", free: true, pro: true)
             row("Pomodoro timer", free: true, pro: true)
             row("HUDs", free: true, pro: true)
             row("Calendar & weather", free: false, pro: true)

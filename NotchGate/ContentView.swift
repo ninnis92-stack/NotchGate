@@ -6,7 +6,6 @@ struct ContentView: View {
     var stats: SystemMonitor
     var calendar: CalendarService
     var weather: WeatherService
-    var nowPlaying: NowPlayingService
     var apps: AppSlotStore
     var flyout: WidgetFlyoutController
     var onHoverChange: (Bool) -> Void
@@ -159,10 +158,6 @@ struct ContentView: View {
                 FlyoutAnchor(kind: .network, controller: flyout) {
                     NetworkExpanded(stats: stats)
                 }
-            }
-
-            if layout.showNowPlaying {
-                NowPlayingExpanded(service: nowPlaying, accent: accent)
             }
 
             if layout.showAppSlots {
@@ -473,7 +468,6 @@ private struct NotchBackdrop: View {
         stats: SystemMonitor(),
         calendar: CalendarService(),
         weather: WeatherService(),
-        nowPlaying: NowPlayingService(),
         apps: AppSlotStore.shared,
         flyout: WidgetFlyoutController(),
         onHoverChange: { _ in },

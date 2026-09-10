@@ -81,7 +81,7 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    /// Expanding the island must not show a Location prompt. Ask only from the flyout.
+    /// Request location only after the user interacts with Weather.
     func requestAccessFromUser() {
         manager.requestWhenInUseAuthorization()
         if hasLocationAuthorization {
