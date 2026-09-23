@@ -2,17 +2,21 @@
 
 NotchGate is a native macOS command-center overlay for Macs with a camera notch. It keeps useful status information and lightweight controls close to the menu bar without replacing macOS system UI.
 
-## Features
+## Product highlights
 
-- Expandable notch overlay with CPU, memory, battery, disk, network, and status widgets.
-- Calendar and local weather widgets with direct interaction inside the main panel.
-- Pomodoro timer and HUDs.
+- Expandable overlay with CPU, memory, battery, disk, network, and status widgets.
+- Calendar and local weather widgets.
+- Pomodoro timer and heads-up displays.
 - Spotlight-style app search.
-- Pinned app shortcuts that launch apps, support internal reordering, and provide repair/removal actions.
-- Custom themes and layout settings for Pro users.
-- StoreKit non-consumable Pro upgrade with purchase restoration through the user’s Apple ID.
+- Pinned app shortcuts with launch, reorder, replace, repair, and removal actions.
+- Custom themes and layout settings.
+- StoreKit non-consumable Pro upgrade with purchase restoration.
 
-The app does not capture screenshots, accept arbitrary dropped files, enumerate active apps or connected devices, automate other applications, or install helper software.
+## Technical highlights
+
+Native Xcode/macOS application with automated tests, local StoreKit configuration, privacy documentation, App Store metadata, and release-oriented scripts.
+
+The app deliberately avoids screenshot capture, arbitrary dropped files, active-app enumeration, device enumeration, cross-application automation, and helper installation.
 
 ## Requirements
 
@@ -22,45 +26,21 @@ The app does not capture screenshots, accept arbitrary dropped files, enumerate 
 
 ## Build locally
 
-Open `NotchGate.xcodeproj` in Xcode, select the `NotchGate` scheme, and run it on **My Mac**. The repository includes `NotchGate/Products.storekit` for local StoreKit testing.
-
-For a command-line build:
+Open `NotchGate.xcodeproj`, select the **NotchGate** scheme, and run it on **My Mac**.
 
 ```sh
-xcodebuild -project NotchGate.xcodeproj \
-  -scheme NotchGate \
-  -configuration Release \
-  -sdk macosx \
-  -derivedDataPath /tmp/NotchGateDerived \
+xcodebuild -project NotchGate.xcodeproj \\
+  -scheme NotchGate \\
+  -configuration Release \\
+  -sdk macosx \\
+  -derivedDataPath /tmp/NotchGateDerived \\
   build
 ```
 
-For distribution, archive the app in Xcode and upload the signed archive through Organizer to App Store Connect.
+The repository includes `NotchGate/Products.storekit` for local StoreKit testing. Create distribution archives through Xcode Organizer.
 
-## Permissions and privacy
+## Privacy and permissions
 
-NotchGate requests Calendar access only to show upcoming events and Location access only to retrieve local weather. Weather coordinates are sent to Open-Meteo to provide the forecast. Search history and preferences remain on the Mac. StoreKit communicates with Apple to verify purchases.
+Calendar access is used for upcoming events. Location is used for local weather, with forecast requests sent to Open-Meteo. Search history and preferences remain on the Mac. StoreKit communicates with Apple to verify purchases. The in-app privacy policy is in `AppStore/PrivacyPolicy.html`.
 
-The in-app privacy policy is in `AppStore/PrivacyPolicy.html`. App Store listing and submission notes are in `AppStore/`.
-
-## App shortcuts
-
-- Click an empty slot to choose an installed application.
-- Click a populated slot to launch it.
-- Option-click or Command-click a slot to replace its app.
-- Drag populated slots to reorder them.
-- Right-click a slot to open, force quit, reveal, replace, or remove the shortcut.
-
-External files and URLs are not accepted as shortcut drops. This keeps the shortcut feature scoped to installed applications and internal slot organization.
-
-## StoreKit
-
-The Pro product identifier is `com.notchlens.pro` and is configured as a non-consumable purchase. Release builds use StoreKit entitlements as the source of truth. Users can restore an active purchase from the same Apple ID after reinstalling the app.
-
-## Repository layout
-
-- `NotchGate/` — macOS application source and resources
-- `NotchGateTests/` — automated tests
-- `AppStore/` — App Store Connect metadata, legal text, screenshots, and checklist
-- `Icons/` and `IconExports/` — icon source and exported artwork
-- `scripts/` — development utilities
+The repository excludes signing credentials, build products, and distribution archives.
