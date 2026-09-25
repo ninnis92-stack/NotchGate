@@ -36,7 +36,7 @@ Work top to bottom. Do not submit until Archive succeeds.
 - [ ] Remove or ignore the StoreKit config for Archive (scheme already uses it only on Run)
 
 ## Review notes (paste in App Store Connect)
-NotchGate is a menu-bar accessory (`LSUIElement`) with an overlay at the camera notch. Hover the island to expand. Pro is a one-time IAP. Calendar and Weather are interactive directly in the main expanded panel; permissions are requested only after the user interacts with the relevant widget. Music controls use Apple Events only after the user enables the feature, and file sharing is limited to user-selected files.
+NotchGate is a menu-bar accessory (`LSUIElement`) with an overlay at the camera notch. Hover the island to expand. Pro is a one-time IAP. Calendar and Weather are interactive directly in the main expanded panel; permissions are requested only after the user interacts with the relevant widget. Prefaces use Continue (not Allow) and then the system prompt. Music controls use Apple Events only after the user enables the feature, and file sharing is limited to user-selected files.
 
 ## Do not submit until
 Island hover is stable, Full Screen does not flicker, and you have a real privacy URL plus a signed Archive.

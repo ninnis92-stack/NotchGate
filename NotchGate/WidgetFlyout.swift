@@ -604,8 +604,8 @@ private struct CalendarFlyout: View {
     var body: some View {
         if calendar.authorizationNotDetermined {
             VStack(spacing: 10) {
-                flyoutEmpty(symbol: "calendar", text: "Show your next event under the notch.")
-                Button("Allow Calendar") {
+                flyoutEmpty(symbol: "calendar", text: "Calendar can show upcoming events under the notch. macOS will ask for access.")
+                Button("Continue") {
                     Task { await calendar.requestAccessFromUser() }
                 }
                 .buttonStyle(.plain)
@@ -743,9 +743,9 @@ private struct WeatherFlyout: View {
             }
         } else {
             VStack(spacing: 10) {
-                flyoutEmpty(symbol: "cloud.sun", text: service.needsLocationPermission ? "Show local weather under the notch." : service.statusText)
+                flyoutEmpty(symbol: "cloud.sun", text: service.needsLocationPermission ? "Weather can show local conditions under the notch. macOS will ask for location." : service.statusText)
                 if service.needsLocationPermission {
-                    Button(service.locationAccessDenied ? "Open Settings" : "Allow Location") {
+                    Button(service.locationAccessDenied ? "Open Settings" : "Continue") {
                         if service.locationAccessDenied {
                             service.openSettings()
                         } else {

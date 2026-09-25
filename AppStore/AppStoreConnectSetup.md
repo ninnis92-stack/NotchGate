@@ -30,4 +30,4 @@ This is a click guide, not an in-app script. Do not add a `.swift` helper to the
 6. Replacement build 2 (capture features removed): `/tmp/NotchGate-1.0-build2.xcarchive`. Upload it, select build 2, attach IAP `com.notchlens.pro`, and resubmit for review.
 
 ## Review setup
-When Pro is active, the app requests Calendar and Location permission only after the user interacts with the relevant widget. No login or sample files are required. Music controls may request Apple Events permission when the user uses Music or Spotify controls; file sharing only operates on user-selected files.
+When Pro is active, the app requests Calendar and Location permission only after the user interacts with the relevant widget. Prefaces use Continue, then the system prompt. No login or sample files are required. Music controls may request Apple Events permission when the user uses Music or Spotify controls; file sharing only operates on user-selected files.

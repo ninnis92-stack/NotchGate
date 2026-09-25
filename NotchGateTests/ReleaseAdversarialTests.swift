@@ -67,6 +67,15 @@ final class ReleaseConfigurationAdversarialTests: XCTestCase {
         XCTAssertFalse(section.contains("FlyoutAnchor(kind: .music"))
     }
 
+    func testCalendarAndLocationPrefacesDoNotUseAllowButtons() throws {
+        let flyout = try String(contentsOf: projectRoot.appendingPathComponent("NotchGate/WidgetFlyout.swift"), encoding: .utf8)
+        XCTAssertFalse(flyout.contains("Allow Calendar"))
+        XCTAssertFalse(flyout.contains("Allow Location"))
+        XCTAssertTrue(flyout.contains("Button(\"Continue\")"))
+        XCTAssertTrue(flyout.contains("macOS will ask for access."))
+        XCTAssertTrue(flyout.contains("macOS will ask for location."))
+    }
+
     func testWeatherPermissionIsDeclaredAndPromptedWhenWeatherIsEnabled() throws {
         let infoURL = projectRoot.appendingPathComponent("NotchGate/Info.plist")
         let infoData = try Data(contentsOf: infoURL)
