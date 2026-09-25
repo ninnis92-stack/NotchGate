@@ -14,6 +14,8 @@ enum FlyoutKind: Equatable {
     case weather
     case status
     case search
+    case music
+    case files
 
     var size: NSSize {
         switch self {
@@ -25,6 +27,8 @@ enum FlyoutKind: Equatable {
         case .weather: return NSSize(width: 372, height: 312)
         case .status: return NSSize(width: 340, height: 168)
         case .search: return NSSize(width: 380, height: 340)
+        case .music: return NSSize(width: 340, height: 260)
+        case .files: return NSSize(width: 380, height: 360)
         }
     }
 
@@ -40,6 +44,8 @@ enum FlyoutKind: Equatable {
         case .weather: return "Weather"
         case .status: return "Status"
         case .search: return "Search"
+        case .music: return "Music"
+        case .files: return "File Shelf"
         }
     }
 }
@@ -50,16 +56,111 @@ final class WidgetFlyoutPanel: NSPanel {
 }
 
 @MainActor
-final class WidgetFlyoutController {
-    // Feature details are rendered in the main notch panel. No secondary
-    // dropdown window is created or shown.
-    var isVisible: Bool { false }
-    func contains(_ point: NSPoint) -> Bool { false }
-    func bridgeContains(_ point: NSPoint, island: NSRect) -> Bool { false }
+final class WidgetFlyoutController: NSObject, NSWindowDelegate {
+    private var window: NSWindow?
+    private var hosting: NSHostingView<WidgetFlyoutRoot>?
+    private var stats: SystemMonitor?
+    private var calendar: CalendarService?
+    private var weather: WeatherService?
+    private var apps: AppSlotStore?
+    private var lastToggle = Date.distantPast
+
+    var isVisible: Bool { window?.isVisible == true }
+
+    func configure(stats: SystemMonitor, calendar: CalendarService, weather: WeatherService, apps: AppSlotStore) {
+        self.stats = stats
+        self.calendar = calendar
+        self.weather = weather
+        self.apps = apps
+    }
+
+    func toggle(_ kind: FlyoutKind) {
+        let now = Date()
+        guard now.timeIntervalSince(lastToggle) >= 0.22 else { return }
+        lastToggle = now
+        if isVisible {
+            dismiss()
+        } else {
+            reveal(kind)
+        }
+    }
+
+    func contains(_ point: NSPoint) -> Bool {
+        guard let window, window.isVisible else { return false }
+        return window.frame.insetBy(dx: -16, dy: -16).contains(point)
+    }
+
+    func bridgeContains(_ point: NSPoint, island: NSRect) -> Bool {
+        guard let window, window.isVisible else { return false }
+        let flyout = window.frame.insetBy(dx: -16, dy: -16)
+        guard flyout.intersects(island.insetBy(dx: -16, dy: -16)) else { return false }
+        let bridge = flyout.union(island.insetBy(dx: -16, dy: -16))
+        return bridge.contains(point) && !flyout.contains(point) && !island.contains(point)
+    }
     func applyLevel(_ level: NSWindow.Level) {}
     func hoverAnchor(_ kind: FlyoutKind, isInside: Bool) {}
-    func reveal(_ kind: FlyoutKind) {}
-    func dismiss() {}
+
+    func reveal(_ kind: FlyoutKind) {
+        guard let stats, let calendar, let weather, let apps else { return }
+        let root = WidgetFlyoutView(
+            kind: kind,
+            stats: stats,
+            calendar: calendar,
+            weather: weather,
+            apps: apps,
+            onHover: { _ in }
+        )
+        let hostedRoot = WidgetFlyoutRoot(content: root)
+        if let window, let hosting {
+            hosting.rootView = hostedRoot
+            window.title = kind.title
+            window.setContentSize(kind.size)
+            UtilityWindows.raiseUtilityWindow(window)
+            return
+        }
+
+        let hosting = NSHostingView(rootView: hostedRoot)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: kind.size),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = kind.title
+        window.isReleasedWhenClosed = false
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.minSize = kind.size
+        window.maxSize = CGSize(width: 560, height: 640)
+        window.contentView = hosting
+        window.delegate = self
+        if let island = NSApp.windows.first(where: { $0 is NotchPanel && $0.isVisible })?.frame {
+            let origin = NSPoint(
+                x: island.midX - kind.size.width / 2,
+                y: island.minY - kind.size.height - 16
+            )
+            window.setFrameOrigin(origin)
+        } else {
+            window.center()
+        }
+        self.hosting = hosting
+        self.window = window
+        UtilityWindows.raiseUtilityWindow(window)
+    }
+
+    func dismiss() {
+        guard let window, window.isVisible else { return }
+        lastToggle = Date()
+        window.orderOut(nil)
+        UtilityWindows.restoreAccessoryIfIdle()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window, window.isVisible else { return }
+        lastToggle = Date()
+        window.orderOut(nil)
+        UtilityWindows.restoreAccessoryIfIdle()
+    }
 }
 
 struct FlyoutAnchor<Content: View>: View {
@@ -69,6 +170,23 @@ struct FlyoutAnchor<Content: View>: View {
 
     var body: some View {
         content()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                controller.toggle(kind)
+            }
+    }
+}
+
+/// Flyouts are hosted in their own AppKit window, so they must receive the
+/// same shared environment objects as the main overlay root.
+private struct WidgetFlyoutRoot: View {
+    let content: WidgetFlyoutView
+
+    var body: some View {
+        content
+            .environment(LicenseManager.shared)
+            .environment(ThemeManager.shared)
+            .environment(NotchCustomization.shared)
     }
 }
 
@@ -120,10 +238,21 @@ private struct WidgetFlyoutView: View {
                 NetworkFlyout(stats: stats, accent: accent)
             case .search:
                 SearchFlyout(service: SearchService.shared, accent: accent)
+            case .music:
+                MusicFlyout(service: MusicService.shared, accent: accent)
+            case .files:
+                FileShelfFlyout(store: FileShelfStore.shared, accent: accent)
             }
         }
         .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Keep the AppKit window's requested size authoritative. An
+        // unconstrained max-height here can make short flyouts, especially
+        // Status, expand to the hosting window's maximum height.
+        .frame(
+            width: max(0, kind.size.width - 16),
+            height: max(0, kind.size.height - 16),
+            alignment: .topLeading
+        )
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color.black.opacity(0.96))

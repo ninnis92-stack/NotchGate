@@ -50,9 +50,6 @@ struct ScopedFileAccess {
     init?(url: URL) {
         self.url = url
         didStart = url.startAccessingSecurityScopedResource()
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        }
         guard FileManager.default.fileExists(atPath: url.path) else {
             if didStart { url.stopAccessingSecurityScopedResource() }
             return nil

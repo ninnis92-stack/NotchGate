@@ -60,6 +60,14 @@ enum AppSlotStyle: String, CaseIterable, Identifiable {
     var rows: Int { AppSlotStyle.capacity / columns }
 }
 
+enum AutoHideRevealStyle: String, CaseIterable, Identifiable {
+    case closed
+    case open
+
+    var id: String { rawValue }
+    var title: String { self == .closed ? "Closed island" : "Open panel" }
+}
+
 enum NotchOverlayLevel: String, CaseIterable, Identifiable {
     case menuBar
     case popUpMenu
@@ -108,6 +116,8 @@ enum NotchShoulder: String, CaseIterable, Identifiable {
     case network
     case pomodoro
     case search
+    case music
+    case files
     case empty
 
     var id: String { rawValue }
@@ -120,6 +130,8 @@ enum NotchShoulder: String, CaseIterable, Identifiable {
         case .network: return "Network"
         case .pomodoro: return "Pomodoro"
         case .search: return "Search"
+        case .music: return "Music"
+        case .files: return "File shelf"
         case .empty: return "Nothing"
         }
     }
@@ -132,6 +144,8 @@ enum NotchShoulder: String, CaseIterable, Identifiable {
         case .network: return "arrow.up.arrow.down"
         case .pomodoro: return "timer"
         case .search: return "magnifyingglass"
+        case .music: return "music.note"
+        case .files: return "tray.and.arrow.down"
         case .empty: return "minus"
         }
     }
@@ -155,6 +169,10 @@ final class NotchCustomization {
     var overlayLevel: NotchOverlayLevel { didSet { persist("overlayLevel", overlayLevel.rawValue) } }
     /// When off, Settings and Pro stay above the island.
     var overlaySettingsWindows: Bool { didSet { persist("overlaySettingsWindows", overlaySettingsWindows) } }
+    var autoHide: Bool { didSet { persist("autoHide", autoHide) } }
+    var autoHideRevealStyle: AutoHideRevealStyle {
+        didSet { persist("autoHideRevealStyle", autoHideRevealStyle.rawValue) }
+    }
 
 
     var showMonitoring: Bool { didSet { persist("showMonitoring", showMonitoring) } }
@@ -163,6 +181,8 @@ final class NotchCustomization {
     var showCalendar: Bool { didSet { persist("showCalendar", showCalendar) } }
     var showWeather: Bool { didSet { persist("showWeather", showWeather) } }
     var showPomodoro: Bool { didSet { persist("showPomodoro", showPomodoro) } }
+    var showMusic: Bool { didSet { persist("showMusic", showMusic) } }
+    var showFiles: Bool { didSet { persist("showFiles", showFiles) } }
     var showSystemHUDs: Bool { didSet { persist("showSystemHUDs", showSystemHUDs) } }
     var pomodoroDuration: TimeInterval { didSet { persist("pomodoroDuration", pomodoroDuration) } }
     var rememberPosition: Bool { didSet { persist("rememberPosition", rememberPosition) } }
@@ -202,6 +222,8 @@ final class NotchCustomization {
         if showMonitoring { rows.append(64) }
         if showNetwork, isPro { rows.append(36) }
         if showAppSlots { rows.append(appSlotsHeight) }
+        if showMusic { rows.append(36) }
+        if showFiles, isPro || !FileShelfStore.shared.items.isEmpty { rows.append(36) }
         if showStatusStrip { rows.append(28) }
         if showCalendar, isPro { rows.append(32) }
         if showWeather, isPro { rows.append(32) }
@@ -222,6 +244,8 @@ final class NotchCustomization {
         var y = collapsedBar + 2
         if showMonitoring { y += 64 + 8 }
         if showNetwork, isPro { y += 36 + 8 }
+        if showMusic { y += 36 + 8 }
+        if showFiles, isPro || !FileShelfStore.shared.items.isEmpty { y += 36 + 8 }
         return y
     }
 
@@ -251,12 +275,16 @@ final class NotchCustomization {
             }
         }
         overlaySettingsWindows = defaults.object(forKey: "notch.overlaySettingsWindows") as? Bool ?? false
+        autoHide = defaults.bool(forKey: "notch.autoHide")
+        autoHideRevealStyle = AutoHideRevealStyle(rawValue: defaults.string(forKey: "notch.autoHideRevealStyle") ?? "") ?? .closed
         showMonitoring = defaults.object(forKey: "notch.showMonitoring") as? Bool ?? true
         showAppSlots = defaults.object(forKey: "notch.showAppSlots") as? Bool ?? true
         showStatusStrip = defaults.object(forKey: "notch.showStatusStrip") as? Bool ?? false
         showCalendar = defaults.object(forKey: "notch.showCalendar") as? Bool ?? true
         showWeather = defaults.object(forKey: "notch.showWeather") as? Bool ?? true
         showPomodoro = defaults.object(forKey: "notch.showPomodoro") as? Bool ?? true
+        showMusic = defaults.object(forKey: "notch.showMusic") as? Bool ?? true
+        showFiles = defaults.object(forKey: "notch.showFiles") as? Bool ?? true
         showSystemHUDs = defaults.object(forKey: "notch.showSystemHUDs") as? Bool ?? true
         pomodoroDuration = defaults.object(forKey: "notch.pomodoroDuration") as? Double ?? 25 * 60
         rememberPosition = defaults.object(forKey: "notch.rememberPosition") as? Bool ?? true

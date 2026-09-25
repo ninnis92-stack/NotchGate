@@ -80,6 +80,7 @@ final class PomodoroService {
         justFinished = true
         completedSessions += 1
         NSSound.beep()
+        PomodoroWindowManager.shared.show()
     }
 
     func applyDuration(_ text: String) {

@@ -3,13 +3,9 @@ import CoreGraphics
 import SwiftUI
 
 enum AppPresentation {
-    /// Debug local install shows a Dock icon. The App Store build stays a menu extra.
+    /// Keep NotchGate visible in the Dock while it is running, including the App Store build.
     static var showsDockIcon: Bool {
-        #if DEBUG
         true
-        #else
-        false
-        #endif
     }
 
     static func applyDefaultActivationPolicy() {
@@ -46,18 +42,18 @@ struct NotchGateApp: App {
             }
         }
         .menuBarExtraStyle(.menu)
-        Settings {
-            SettingsView()
-                .environment(LicenseManager.shared)
-                .environment(ThemeManager.shared)
-                .environment(NotchCustomization.shared)
-        }
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
                     UtilityWindows.toggleSettings()
                 }
                 .keyboardShortcut(",", modifiers: .command)
+            }
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit NotchGate") {
+                    NSApp.terminate(nil)
+                }
+                .keyboardShortcut("q", modifiers: .command)
             }
         }
     }
@@ -100,6 +96,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         if UtilityWindows.isBlockingIsland { return }
         panelController.show()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Menu-bar overlays do not have a normal document close cycle. Hide
+        // them immediately so Dock > Quit gives visible confirmation before
+        // AppKit finishes terminating the process.
+        NSApp.windows.forEach { $0.orderOut(nil) }
+        return .terminateNow
     }
 
     func applicationDidResignActive(_ notification: Notification) {
@@ -195,6 +199,32 @@ final class NotchPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+enum AutoHidePolicy {
+    static func shouldExpandOnIslandHover(
+        enabled: Bool,
+        style: AutoHideRevealStyle,
+        pointerInExpansionZone: Bool = true
+    ) -> Bool {
+        pointerInExpansionZone && (!enabled || style == .open)
+    }
+
+    static func showsExpandControl(
+        enabled: Bool, style: AutoHideRevealStyle, expanded: Bool
+    ) -> Bool {
+        enabled && style == .closed && !expanded
+    }
+
+    static func shouldHide(
+        enabled: Bool,
+        expanded: Bool,
+        flyoutVisible: Bool,
+        utilityBlocking: Bool,
+        pointerInRevealZone: Bool
+    ) -> Bool {
+        enabled && !expanded && !flyoutVisible && !utilityBlocking && !pointerInRevealZone
+    }
+}
+
 @MainActor
 final class NotchPanelController: NSObject {
     private var panel: NotchPanel?
@@ -210,7 +240,10 @@ final class NotchPanelController: NSObject {
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var spaceHeartbeat: Timer?
+    private var pointerHeartbeat: Timer?
     private var collapseWork: DispatchWorkItem?
+    private var autoHideWork: DispatchWorkItem?
+    private var isAutoHidden = false
     private var didInstallObservers = false
     private var didInstallMonitors = false
     private var lastSpaceRestick: TimeInterval = 0
@@ -218,10 +251,15 @@ final class NotchPanelController: NSObject {
     private var lastAppliedFrame: NSRect = .zero
 
     func show() {
+        flyout.configure(stats: stats, calendar: calendar, weather: weather, apps: apps)
+        stats.onRefresh = { stats in
+            NotificationService.shared.evaluate(stats: stats)
+        }
         state.geometry = NotchGeometry.current()
         stats.start(interval: NotchCustomization.shared.refreshInterval)
         OutputVolume.shared.start()
         SystemHUDController.shared.start()
+        MusicService.shared.start()
         if NotchCustomization.shared.assignsSearch { SearchService.shared.start() }
         if LicenseManager.isPro {
             if NotchCustomization.shared.showCalendar { calendar.start() }
@@ -287,6 +325,12 @@ final class NotchPanelController: NSObject {
         container.gear = gear
         container.addSubview(gear)
 
+        let expandControl = ExpandControlView()
+        expandControl.target = self
+        expandControl.action = #selector(expandFromControl)
+        container.expandControl = expandControl
+        container.addSubview(expandControl)
+
         let slotsRow = AppSlotsRowView()
         slotsRow.store = apps
         slotsRow.reload()
@@ -301,6 +345,7 @@ final class NotchPanelController: NSObject {
         bindOverlay()
         applyFrame(expanded: false, animated: false)
         startMouseTracking()
+        if NotchCustomization.shared.autoHide { scheduleAutoHide() }
         installObservers()
     }
 
@@ -363,10 +408,11 @@ final class NotchPanelController: NSObject {
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.mouseMoved, .leftMouseDown, .leftMouseDragged, .leftMouseUp]
         ) { [weak self] event in
-            let location = NSEvent.mouseLocation
             let clicked = event.type == .leftMouseDown
             DispatchQueue.main.async {
-                self?.evaluatePointer(location)
+                // Queued events can lag behind the heartbeat during a resize.
+                // Evaluate the current pointer, not an obsolete edge crossing.
+                self?.evaluatePointer(NSEvent.mouseLocation)
                 if clicked { self?.openSettingsIfClickingGear() }
             }
         }
@@ -378,7 +424,22 @@ final class NotchPanelController: NSObject {
             self?.evaluatePointer(NSEvent.mouseLocation)
             return event
         }
+        // A transparent overlay can miss mouseMoved callbacks while another
+        // app owns the active space. Polling the pointer location keeps the
+        // top-edge reveal reliable without requiring the user to click first.
+        pointerHeartbeat = Timer.scheduledTimer(
+            timeInterval: 0.08,
+            target: self,
+            selector: #selector(pollPointer),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.main.add(pointerHeartbeat!, forMode: .common)
         startSpaceHeartbeat()
+    }
+
+    @objc private func pollPointer() {
+        evaluatePointer(NSEvent.mouseLocation)
     }
 
     private func startSpaceHeartbeat() {
@@ -422,7 +483,10 @@ final class NotchPanelController: NSObject {
 
         if UtilityWindows.isBlockingIsland {
             ignoreActivationUntilExit = true
-            collapseNow()
+            // The flyout itself is a blocking utility window, but it must not
+            // be dismissed by the pointer pass that notices it just opened.
+            // Settings/Pro still use the normal dismissal path.
+            collapseNow(dismissFlyout: !flyout.isVisible)
             return
         }
 
@@ -438,10 +502,14 @@ final class NotchPanelController: NSObject {
         let overBridge = flyout.bridgeContains(point, island: panelFrame)
         let overTopBar = state.geometry.topBarRevealZone.contains(point)
         let overIsland = state.geometry.closestActivationZone.contains(point)
+        let autoHideEnabled = NotchCustomization.shared.autoHide
+        let overExpansionZone = state.geometry.autoHideExpansionZone.contains(point)
 
         if overTopBar {
+            cancelAutoHide()
             revealForTopBarHover()
-        } else if revealedByTopBar, !state.isExpanded {
+        } else if revealedByTopBar, !state.isExpanded,
+                  !panelFrame.insetBy(dx: -6, dy: -6).contains(point) {
             revealedByTopBar = false
         }
 
@@ -459,12 +527,18 @@ final class NotchPanelController: NSObject {
         }
 
         if flyout.isVisible {
-            if overFlyout || overBridge || overIsland {
-                cancelCollapse()
-                return
-            }
-            scheduleCollapse()
+            // A flyout is a user-opened utility window. Once it is open, do
+            // not let the island's hover-collapse timer dismiss it just
+            // because the pointer moved over another app or toward the
+            // flyout. It remains available until toggled or closed.
+            cancelCollapse()
             return
+        }
+
+        if !isAutoHidden && panelFrame.insetBy(dx: -6, dy: -6).contains(point) {
+            cancelAutoHide()
+        } else if autoHideEnabled && !state.isExpanded && !overTopBar {
+            scheduleAutoHide()
         }
 
         if ignoreActivationUntilExit {
@@ -476,17 +550,38 @@ final class NotchPanelController: NSObject {
 
         if overIsland {
             cancelCollapse()
-            setExpanded(true)
+            if AutoHidePolicy.shouldExpandOnIslandHover(
+                enabled: autoHideEnabled,
+                style: NotchCustomization.shared.autoHideRevealStyle,
+                pointerInExpansionZone: !autoHideEnabled || overExpansionZone
+            ) {
+                setExpanded(true)
+            }
         }
+    }
+
+    @objc private func expandFromControl() {
+        guard AutoHidePolicy.showsExpandControl(
+            enabled: NotchCustomization.shared.autoHide,
+            style: NotchCustomization.shared.autoHideRevealStyle,
+            expanded: state.isExpanded
+        ) else { return }
+        setExpanded(true)
     }
 
     /// Bring the island onto this Space while the pointer is in the menu-bar strip.
     private func revealForTopBarHover() {
         guard let panel else { return }
+        isAutoHidden = false
+        panel.alphaValue = 1
         if !revealedByTopBar {
             revealedByTopBar = true
-            lastSpaceRestick = ProcessInfo.processInfo.systemUptime
-            OverlayChrome.followActiveSpace(panel)
+            // Reassigning Spaces on every edge entry can briefly recompose
+            // the closed island. Only move it when it actually lost its Space.
+            if !panel.isOnActiveSpace || !panel.isVisible {
+                lastSpaceRestick = ProcessInfo.processInfo.systemUptime
+                OverlayChrome.followActiveSpace(panel)
+            }
             applyFrame(expanded: state.isExpanded, animated: false, bringForward: true)
             return
         }
@@ -499,6 +594,9 @@ final class NotchPanelController: NSObject {
             scheduleCollapse()
             return
         }
+        cancelAutoHide()
+        isAutoHidden = false
+        panel?.alphaValue = 1
         cancelCollapse()
         guard !state.isExpanded else { return }
         NotchAnimationManager.shared.applyExpandAnimation()
@@ -509,12 +607,13 @@ final class NotchPanelController: NSObject {
 
     private func scheduleCollapse() {
         guard collapseWork == nil else { return }
+        let preserveFlyout = flyout.isVisible
         let work = DispatchWorkItem { [weak self] in
             self?.collapseWork = nil
-            self?.collapseNow()
+            self?.collapseNow(dismissFlyout: !preserveFlyout)
         }
         collapseWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 
     private func cancelCollapse() {
@@ -522,14 +621,57 @@ final class NotchPanelController: NSObject {
         collapseWork = nil
     }
 
-    private func collapseNow() {
+    private func scheduleAutoHide() {
+        guard !isAutoHidden, autoHideWork == nil,
+              AutoHidePolicy.shouldHide(
+                enabled: NotchCustomization.shared.autoHide,
+                expanded: state.isExpanded,
+                flyoutVisible: flyout.isVisible,
+                utilityBlocking: UtilityWindows.isBlockingIsland,
+                pointerInRevealZone: pointerKeepsIslandVisible
+              ) else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, AutoHidePolicy.shouldHide(
+                enabled: NotchCustomization.shared.autoHide,
+                expanded: self.state.isExpanded,
+                flyoutVisible: self.flyout.isVisible,
+                utilityBlocking: UtilityWindows.isBlockingIsland,
+                pointerInRevealZone: self.pointerKeepsIslandVisible
+            ) else {
+                self?.autoHideWork = nil
+                return
+            }
+            self.autoHideWork = nil
+            self.isAutoHidden = true
+            self.revealedByTopBar = false
+            self.panel?.alphaValue = 0
+        }
+        autoHideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
+    private func cancelAutoHide() {
+        autoHideWork?.cancel()
+        autoHideWork = nil
+    }
+
+    private var pointerKeepsIslandVisible: Bool {
+        let point = NSEvent.mouseLocation
+        return state.geometry.topBarRevealZone.contains(point)
+            || (!isAutoHidden && panel?.frame.insetBy(dx: -6, dy: -6).contains(point) == true)
+    }
+
+    private func collapseNow(dismissFlyout: Bool = true) {
         cancelCollapse()
         isPointerInside = false
-        flyout.dismiss()
+        if dismissFlyout {
+            flyout.dismiss()
+        }
         guard state.isExpanded else { return }
         NotchAnimationManager.shared.applyContractAnimation()
         state.isExpanded = false
         applyFrame(expanded: false, animated: true)
+        if NotchCustomization.shared.autoHide { scheduleAutoHide() }
     }
 
     private func setOverlayFront() {
@@ -569,7 +711,7 @@ final class NotchPanelController: NSObject {
                 panel.setFrame(frame, display: true, animate: false)
             }
         }
-        panel.alphaValue = 1
+        panel.alphaValue = isAutoHidden ? 0 : 1
         if bringForward || !panel.isVisible {
             panel.orderFrontRegardless()
         }
@@ -602,6 +744,13 @@ final class NotchPanelController: NSObject {
         state.geometry = NotchGeometry.current()
         stats.start(interval: NotchCustomization.shared.refreshInterval)
         applyFrame(expanded: state.isExpanded, animated: true)
+        if !NotchCustomization.shared.autoHide {
+            cancelAutoHide()
+            isAutoHidden = false
+            panel?.alphaValue = 1
+        } else if !state.isExpanded {
+            scheduleAutoHide()
+        }
         bindOverlay()
         if NotchCustomization.shared.assignsSearch { SearchService.shared.start() }
         if LicenseManager.isPro {
@@ -620,7 +769,9 @@ final class NotchPanelController: NSObject {
     @objc private func utilityWindowsChanged() {
         if UtilityWindows.isBlockingIsland {
             ignoreActivationUntilExit = true
-            collapseNow()
+            // A newly opened flyout is itself a blocking utility window, but
+            // it must remain visible until the user toggles it or closes it.
+            collapseNow(dismissFlyout: !flyout.isVisible)
         } else {
             evaluatePointer(NSEvent.mouseLocation)
         }
@@ -639,10 +790,28 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
+final class ExpandControlView: NSButton {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        title = ""
+        image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Open NotchGate panel")
+        imagePosition = .imageOnly
+        bezelStyle = .inline
+        isBordered = false
+        contentTintColor = NSColor.white.withAlphaComponent(0.92)
+        toolTip = "Open NotchGate panel"
+        setAccessibilityLabel("Open NotchGate panel")
+    }
+
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 final class DragAwareContainer: NSView {
     var store: AppSlotStore?
     var hosting: NSView?
     var gear: SettingsGearView?
+    var expandControl: ExpandControlView?
     var slotsRow: AppSlotsRowView?
     var isExpanded = false
     var collapsedBarHeight: CGFloat = 40
@@ -686,6 +855,19 @@ final class DragAwareContainer: NSView {
             height: gearSize
         )
 
+        let showExpand = AutoHidePolicy.showsExpandControl(
+            enabled: NotchCustomization.shared.autoHide,
+            style: NotchCustomization.shared.autoHideRevealStyle,
+            expanded: isExpanded
+        )
+        expandControl?.isHidden = !showExpand
+        expandControl?.frame = NSRect(
+            x: 8,
+            y: bounds.height - notchHeight / 2 - 12,
+            width: 24,
+            height: 24
+        )
+
         let showSlots = isExpanded && NotchCustomization.shared.showAppSlots
         slotsRow?.isHidden = !showSlots
         if showSlots, let slotsRow {
@@ -706,6 +888,9 @@ final class DragAwareContainer: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if let expandControl, !expandControl.isHidden, expandControl.frame.contains(point) {
+            return expandControl
+        }
         if let gear, !gear.isHidden, gear.frame.contains(point) {
             return gear
         }

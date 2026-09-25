@@ -31,13 +31,6 @@
 			);
 			target = 65F6F6773049265C00F23B73 /* NotchGate */;
 		};
-		65F6F6AC3049265C00F23B73 /* Exceptions for "NotchGateTests" folder in "NotchGateTests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				NotchGateTests.entitlements,
-			);
-			target = 65F6F6A33049265C00F23B73 /* NotchGateTests */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -51,9 +44,6 @@
 		};
 		65F6F6A23049265C00F23B73 /* NotchGateTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				65F6F6AC3049265C00F23B73 /* Exceptions for "NotchGateTests" folder in "NotchGateTests" target */,
-			);
 			path = NotchGateTests;
 			sourceTree = "<group>";
 		};
@@ -353,7 +343,7 @@
 				CODE_SIGN_ENTITLEMENTS = NotchGate/NotchGate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 693AH4QR5Q;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -367,13 +357,12 @@
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © NotchLens. All rights reserved.";
-				INFOPLIST_KEY_NSLocationUsageDescription = "NotchGate uses your location to show local weather under the notch.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NotchGate uses your location to show local weather under the notch.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = NotchLens.NotchGate;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = NO;
@@ -395,7 +384,7 @@
 				CODE_SIGN_ENTITLEMENTS = NotchGate/NotchGate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 32;
 				DEVELOPMENT_TEAM = 693AH4QR5Q;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -405,17 +394,16 @@
 				INFOPLIST_KEY_CFBundleDisplayName = NotchGate;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchGate shows your next calendar event and upcoming agenda under the notch.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © NotchLens. All rights reserved.";
-				INFOPLIST_KEY_NSLocationUsageDescription = "NotchGate uses your location to show local weather under the notch.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "NotchGate uses your location to show local weather under the notch.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = NotchLens.NotchGate;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = NO;

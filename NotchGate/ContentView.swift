@@ -48,7 +48,11 @@ struct ContentView: View {
             startOptionalServices()
         }
         .onChange(of: layout.showWeather) { _, _ in
-            startOptionalServices()
+            if layout.showWeather {
+                weather.start(promptForPermission: true)
+            } else {
+                startOptionalServices()
+            }
         }
         .onAppear {
             startOptionalServices()
@@ -66,13 +70,16 @@ struct ContentView: View {
             let cutout = geometry.hasNotch ? geometry.notchWidth : 120
             // Match the hardware cutout: the island is centered on the camera.
             let left = max(0, (proxy.size.width - cutout) / 2)
+            // Keep the right shoulder's visual and hit-test region clear of Settings.
             let right = max(0, proxy.size.width - left - cutout - reserved)
             let showContent = layout.showFullscreenShoulders
+            let showExpandControl = layout.autoHide && layout.autoHideRevealStyle == .closed && !state.isExpanded
             HStack(spacing: 0) {
                 collapsedContent(layout.leftShoulder)
-                    .padding(.leading, 6)
+                    .padding(.leading, showExpandControl ? 36 : 6)
                     .padding(.trailing, gutter)
                     .frame(width: left, height: proxy.size.height, alignment: .trailing)
+                    .contentShape(Rectangle())
                     .opacity(showContent ? 1 : 0)
                     .clipped()
                 Color.clear
@@ -81,6 +88,7 @@ struct ContentView: View {
                     .padding(.leading, gutter)
                     .padding(.trailing, 4)
                     .frame(width: right, height: proxy.size.height, alignment: .leading)
+                    .contentShape(Rectangle())
                     .opacity(showContent ? 1 : 0)
                     .clipped()
                 Color.clear
@@ -160,6 +168,23 @@ struct ContentView: View {
                 }
             }
 
+            if layout.showMusic {
+                // Keep playback controls independent from the generic flyout
+                // tap gesture. Wrapping this row in FlyoutAnchor caused a tap
+                // on previous/pause/next to bubble up and open the Music
+                // window. The dedicated music shoulder remains the explicit
+                // entry point for the Music flyout.
+                MusicWidget(service: MusicService.shared, accent: accent)
+                .frame(height: 36)
+            }
+
+            if layout.showFiles, FileShelfStore.shared.isVisible {
+                FlyoutAnchor(kind: .files, controller: flyout) {
+                    FileShelfWidget(store: FileShelfStore.shared, accent: accent)
+                }
+                .frame(height: 36)
+            }
+
             if layout.showAppSlots {
                 AppSlotsView(store: apps)
             }
@@ -183,9 +208,15 @@ struct ContentView: View {
             }
 
             if layout.showWeather, license.isPro {
-                FlyoutAnchor(kind: .weather, controller: flyout) {
+                Button {
+                    flyout.toggle(.weather)
+                } label: {
                     WeatherWidget(service: weather, accent: accent)
                 }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Weather")
+                .accessibilityHint("Open the weather forecast")
                 .frame(height: 32)
             }
         }
@@ -205,7 +236,8 @@ struct ContentView: View {
             calendar.openSettings()
         } else if calendar.authorizationNotDetermined {
             Task { await calendar.requestAccessFromUser() }
-        } else if let url = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "calshow:")!) {
+        } else if let calendarURL = URL(string: "calshow:"),
+                  let url = NSWorkspace.shared.urlForApplication(toOpen: calendarURL) {
             NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
         } else {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Calendar.app"))
@@ -216,11 +248,20 @@ struct ContentView: View {
     private func collapsedContent(_ slot: NotchShoulder) -> some View {
         switch slot {
         case .load:
-            FlyoutAnchor(kind: .load, controller: flyout) {
+            Button {
+                flyout.toggle(.load)
+            } label: {
                 SystemLoadChip(cpu: stats.cpuUsage, memory: stats.memoryUsage, tint: accent, cpuHistory: stats.cpuHistory, memoryHistory: stats.memoryHistory)
             }
+            .buttonStyle(.plain)
         case .clock:
-            FlyoutAnchor(kind: .calendar, controller: flyout) {
+            Button {
+                if license.isPro {
+                    flyout.toggle(.calendar)
+                } else {
+                    UtilityWindows.showPricing()
+                }
+            } label: {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(context.date, format: Date.FormatStyle(date: .omitted, time: .shortened))
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -232,14 +273,25 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
+            .buttonStyle(.plain)
         case .status:
-            FlyoutAnchor(kind: .status, controller: flyout) {
-                StatusStrip(stats: stats, compact: true)
+            Button {
+                flyout.toggle(.status)
+            } label: {
+                StatusStrip(stats: stats, compact: true, interactive: false)
             }
+            .buttonStyle(.plain)
         case .network:
-            FlyoutAnchor(kind: .network, controller: flyout) {
+            Button {
+                if license.isPro {
+                    flyout.toggle(.network)
+                } else {
+                    UtilityWindows.showPricing()
+                }
+            } label: {
                 NetworkChip(stats: stats)
             }
+            .buttonStyle(.plain)
         case .pomodoro:
             Button {
                 if layout.showPomodoro {
@@ -257,14 +309,15 @@ struct ContentView: View {
                 }
                 .foregroundStyle(pomodoro.justFinished ? Color(red: 0.45, green: 0.92, blue: 0.62) : .white)
                 .animation(NotchAnimationManager.shared.fadeAnimation, value: pomodoro.justFinished)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
             }
             .buttonStyle(HoverScaleButtonStyle(hover: 1.05))
             .opacity(layout.showPomodoro ? 1 : 0)
             .disabled(!layout.showPomodoro)
         case .search:
             Button {
-                SearchService.shared.start()
-                SearchService.shared.open()
+                SearchService.shared.toggle()
             } label: {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11, weight: .semibold))
@@ -274,6 +327,34 @@ struct ContentView: View {
                     .help("Search")
             }
             .buttonStyle(HoverScaleButtonStyle(hover: 1.05))
+        case .music:
+            Button {
+                flyout.toggle(.music)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "music.note")
+                    Text(MusicService.shared.hasTrack ? MusicService.shared.title : "Music")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                }
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .buttonStyle(HoverScaleButtonStyle(hover: 1.05))
+        case .files:
+            if FileShelfStore.shared.isVisible {
+            Button { flyout.toggle(.files) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "tray.and.arrow.down")
+                    Text(FileShelfStore.shared.items.isEmpty ? "Files" : "\(FileShelfStore.shared.items.count)")
+                }
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .buttonStyle(HoverScaleButtonStyle(hover: 1.05))
+            }
         case .empty:
             Color.clear.frame(height: 1)
         }
@@ -295,7 +376,9 @@ struct ContentView: View {
                     .minimumScaleFactor(0.85)
                     .layoutPriority(0)
                 Spacer(minLength: 8)
-                Text(event.isAllDay ? "All day" : event.start.formatted(date: .omitted, time: .shortened))
+                Text(event.isAllDay
+                     ? "\(event.start.formatted(date: .abbreviated, time: .omitted)) · All day"
+                     : event.start.formatted(date: .omitted, time: .shortened))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.55))

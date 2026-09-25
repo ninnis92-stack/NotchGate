@@ -12,12 +12,12 @@ Work top to bottom. Do not submit until Archive succeeds.
 - [x] Privacy Nutrition file `PrivacyInfo.xcprivacy`
 - [x] Encryption flag: uses non-exempt encryption = NO
 - [x] Deployment macOS 14.0
-- [x] App Sandbox **on** (calendar, location, and network client only)
+- [x] App Sandbox **on** (calendar, location, network client, user-selected files, and Apple Events)
 - [ ] Adversarial/unit tests after feature removal: `NotchGateTests` (Product → Test)
 
 ## App Store Connect
 - [ ] Upload `AppStore/NotchGateIcon_1024.png` (no transparency)
-- [ ] IAP `com.notchlens.pro`, Non-Consumable, $9.99, English localization — attach to version 1.0
+- [ ] IAP `com.notchlens.pro`, Non-Consumable, $5.99, English localization — attach to version 1.0
 - [ ] Paid Applications agreement, tax, banking
 - [x] Privacy URL: https://ninnis92-stack.github.io/notchgate-legal/
 - [x] Support URL: https://ninnis92-stack.github.io/notchgate-legal/support.html
@@ -36,7 +36,7 @@ Work top to bottom. Do not submit until Archive succeeds.
 - [ ] Remove or ignore the StoreKit config for Archive (scheme already uses it only on Run)
 
 ## Review notes (paste in App Store Connect)
-NotchGate is a menu-bar accessory (`LSUIElement`) with an overlay at the camera notch. Hover the island to expand. Pro is a one-time IAP. Calendar and Weather are interactive directly in the main expanded panel; permissions are requested only after the user interacts with the relevant widget. There are no secondary dropdowns, screenshot tools, file-drop targets, app/device enumeration features, or media automation.
+NotchGate is a menu-bar accessory (`LSUIElement`) with an overlay at the camera notch. Hover the island to expand. Pro is a one-time IAP. Calendar and Weather are interactive directly in the main expanded panel; permissions are requested only after the user interacts with the relevant widget. Music controls use Apple Events only after the user enables the feature, and file sharing is limited to user-selected files.
 
 ## Do not submit until
 Island hover is stable, Full Screen does not flicker, and you have a real privacy URL plus a signed Archive.

@@ -24,15 +24,54 @@ enum DisplayBrightness {
         return nil
     }
 
+    static func set(_ value: Double) -> Bool {
+        let clamped = Float(min(max(value, 0), 1))
+        guard let setBrightness else { return false }
+        var iterator = io_iterator_t()
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IODisplayConnect"), &iterator) == KERN_SUCCESS else {
+            return false
+        }
+        defer { IOObjectRelease(iterator) }
+
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            let next = service
+            let status = setBrightness(next, 0, "brightness" as CFString, clamped)
+            IOObjectRelease(next)
+            if status == KERN_SUCCESS { return true }
+            service = IOIteratorNext(iterator)
+        }
+        return false
+    }
+
     private static let getBrightness: GetBrightnessFn? = {
         guard let handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY),
               let symbol = dlsym(handle, "IODisplayGetFloatParameter")
         else { return nil }
         return unsafeBitCast(symbol, to: GetBrightnessFn.self)
     }()
+
+    private static let setBrightness: SetBrightnessFn? = {
+        guard let handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_LAZY),
+              let symbol = dlsym(handle, "IODisplaySetFloatParameter")
+        else { return nil }
+        return unsafeBitCast(symbol, to: SetBrightnessFn.self)
+    }()
+}
+
+enum BrightnessHUDPolicy {
+    static func clamped(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
+
+    static func changed(from previous: Double?, to current: Double) -> Bool {
+        guard let previous, current.isFinite else { return false }
+        return abs(previous - current) > 0.001
+    }
 }
 
 private typealias GetBrightnessFn = @convention(c) (io_service_t, IOOptionBits, CFString, UnsafeMutablePointer<Float>) -> kern_return_t
+private typealias SetBrightnessFn = @convention(c) (io_service_t, IOOptionBits, CFString, Float) -> kern_return_t
 
 @MainActor
 final class SystemHUDController {
@@ -43,8 +82,10 @@ final class SystemHUDController {
     private var hideWork: DispatchWorkItem?
     private var keyMonitor: Any?
     private var localKeyMonitor: Any?
+    private var brightnessPollTimer: Timer?
     private var lastVolume: Double?
     private var lastMuted: Bool?
+    private var lastBrightness: Double?
     private var lastKind: SystemHUDKind?
 
     func start() {
@@ -52,6 +93,15 @@ final class SystemHUDController {
             self?.showVolume()
         }
         guard keyMonitor == nil else { return }
+        // Seed the value without presenting a HUD. Hardware brightness keys
+        // are not delivered consistently to every sandboxed app, so the
+        // polling path below is the reliable fallback for the inline HUD.
+        lastBrightness = DisplayBrightness.current()
+        brightnessPollTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.pollBrightness()
+            }
+        }
         keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .systemDefined) { [weak self] event in
             self?.handleSystemKey(event)
         }
@@ -61,9 +111,28 @@ final class SystemHUDController {
         }
     }
 
+    private func pollBrightness() {
+        guard NotchCustomization.shared.showSystemHUDs,
+              let value = DisplayBrightness.current() else { return }
+        // Do not show an unsolicited HUD on startup; only changes after the
+        // initial seed represent a user action or a hardware-key update.
+        guard lastBrightness != nil else {
+            lastBrightness = value
+            return
+        }
+        guard BrightnessHUDPolicy.changed(from: lastBrightness, to: value) else { return }
+        showBrightness()
+    }
+
     func place(under island: NSRect) {
         guard let panel, panel.isVisible else { return }
         panel.setFrame(frame(under: island), display: true)
+    }
+
+    func cancelHide() {
+        hideWork?.cancel()
+        hideWork = nil
+        panel?.alphaValue = 1
     }
 
     private func handleSystemKey(_ event: NSEvent) {
@@ -98,13 +167,26 @@ final class SystemHUDController {
 
     private func showBrightness() {
         guard NotchCustomization.shared.showSystemHUDs else { return }
-        let value = DisplayBrightness.current() ?? 0
+        guard let value = DisplayBrightness.current() else { return }
+        if lastBrightness == value, lastKind == .brightness { return }
+        lastBrightness = value
         lastKind = .brightness
         present(.brightness, value: value, symbol: "sun.max.fill")
     }
 
     private func present(_ kind: SystemHUDKind, value: Double, symbol: String) {
-        let view = SystemHUDView(kind: kind, value: value, symbol: symbol)
+        let view = SystemHUDView(
+            kind: kind,
+            value: value,
+            symbol: symbol,
+            onValueChanged: { [weak self] next in
+                guard kind == .brightness else { return }
+                if DisplayBrightness.set(next) {
+                    self?.lastBrightness = BrightnessHUDPolicy.clamped(next)
+                    self?.lastKind = .brightness
+                }
+            }
+        )
         if panel == nil {
             let panel = NSPanel(
                 contentRect: .zero,
@@ -115,7 +197,10 @@ final class SystemHUDController {
             panel.isOpaque = false
             panel.backgroundColor = .clear
             panel.hasShadow = false
-            panel.ignoresMouseEvents = true
+            // The brightness HUD is a real control. Volume remains read-only,
+            // but the panel must accept mouse input so the brightness slider
+            // can be dragged instead of merely painted.
+            panel.ignoresMouseEvents = false
             panel.hidesOnDeactivate = false
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .canJoinAllApplications]
             panel.isFloatingPanel = true
@@ -160,7 +245,9 @@ final class SystemHUDController {
                 context.duration = 0.18
                 self?.panel?.animator().alphaValue = 0
             } completionHandler: {
-                self?.panel?.orderOut(nil)
+                Task { @MainActor [weak self] in
+                    self?.panel?.orderOut(nil)
+                }
             }
         }
         hideWork = work
@@ -177,22 +264,43 @@ private struct SystemHUDView: View {
     let kind: SystemHUDKind
     let value: Double
     let symbol: String
+    let onValueChanged: (Double) -> Void
+    @State private var scrubbedValue: Double
+
+    init(kind: SystemHUDKind, value: Double, symbol: String, onValueChanged: @escaping (Double) -> Void) {
+        self.kind = kind
+        self.value = value
+        self.symbol = symbol
+        self.onValueChanged = onValueChanged
+        _scrubbedValue = State(initialValue: value)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .semibold))
                 .frame(width: 22)
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.14))
-                    Capsule()
-                        .fill(Color.white)
-                        .frame(width: max(8, proxy.size.width * CGFloat(min(max(value, 0), 1))))
+            if kind == .brightness {
+                Slider(value: Binding(
+                    get: { scrubbedValue },
+                    set: { next in
+                        scrubbedValue = min(max(next, 0), 1)
+                        onValueChanged(scrubbedValue)
+                    }
+                ), in: 0...1)
+                .tint(.white)
+            } else {
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.14))
+                        Capsule()
+                            .fill(Color.white)
+                            .frame(width: max(8, proxy.size.width * CGFloat(min(max(value, 0), 1))))
+                    }
                 }
+                .frame(height: 6)
             }
-            .frame(height: 6)
-            Text("\(Int((min(max(value, 0), 1) * 100).rounded()))%")
+            Text("\(Int((min(max(kind == .brightness ? scrubbedValue : value, 0), 1) * 100).rounded()))%")
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .frame(width: 36, alignment: .trailing)
@@ -201,5 +309,8 @@ private struct SystemHUDView: View {
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black.opacity(0.92), in: Capsule())
+        .onHover { inside in
+            if inside { SystemHUDController.shared.cancelHide() }
+        }
     }
 }

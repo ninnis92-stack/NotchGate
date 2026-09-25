@@ -117,12 +117,14 @@ final class SpotlightPanelController {
     private var panel: NSPanel?
     private var hosting: NSHostingView<SpotlightPanelView>?
 
+    var isVisible: Bool { panel?.isVisible == true }
+
     func show(service: SearchService) {
         UtilityWindows.prepareForStoreKit()
         let root = SpotlightPanelView(service: service)
         if let panel, let hosting {
             hosting.rootView = root
-            panel.makeKeyAndOrderFront(nil)
+            UtilityWindows.raiseUtilityWindow(panel)
             return
         }
         let hosting = NSHostingView(rootView: root)
@@ -134,12 +136,10 @@ final class SpotlightPanelController {
         )
         panel.title = "Search"
         panel.isFloatingPanel = true
-        panel.level = UtilityWindows.windowLevel
-        panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.contentView = hosting
         panel.center()
-        panel.makeKeyAndOrderFront(nil)
+        UtilityWindows.raiseUtilityWindow(panel)
         self.hosting = hosting
         self.panel = panel
         service.search(service.query)
@@ -154,53 +154,105 @@ final class SpotlightPanelController {
 struct SpotlightPanelView: View {
     @Bindable var service: SearchService
     @Environment(\.controlActiveState) private var active
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search files, apps, or calculate", text: Binding(
+                TextField("Search This Mac", text: Binding(
                     get: { service.query },
                     set: { service.query = $0; service.search($0) }
                 ))
                 .textFieldStyle(.plain)
+                .font(.system(size: 16))
+                .focused($fieldFocused)
                 .onSubmit { submitFirst() }
-            }
-            .padding(12)
-            Divider()
-            if service.results.isEmpty {
-                Text("No results on this Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(service.results) { hit in
-                    Button {
-                        if hit.kind == .history {
-                            service.search(hit.title)
-                        } else {
-                            service.submit(hit)
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(hit.title)
-                                .foregroundStyle(.primary)
-                            Text(hit.subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                if !service.query.isEmpty {
+                    Button { service.query = ""; service.search("") } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                 }
-                .listStyle(.sidebar)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(.quaternary.opacity(0.65))
+            HStack {
+                Picker("Scope", selection: Binding(
+                    get: { NotchCustomization.shared.searchScope },
+                    set: { service.setScope($0) }
+                )) {
+                    ForEach(SearchScope.allCases.filter { $0 != .web }) { scope in
+                        Text(scope == .thisMac ? "This Mac" : scope.title).tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Spacer()
+                Text(resultSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            Divider()
+            if service.results.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: service.query.isEmpty ? "magnifyingglass" : "folder.badge.questionmark")
+                        .font(.system(size: 26))
+                        .foregroundStyle(.secondary)
+                    Text(service.query.isEmpty ? "Search This Mac" : "No results")
+                        .font(.headline)
+                    Text(service.query.isEmpty ? "Search by file name or content." : "Try a different name or search term.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            } else {
+                List(service.results) { hit in
+                    SearchResultRow(hit: hit)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { service.submit(hit) }
+                        .contextMenu {
+                            if hit.url != nil {
+                                Button("Open") { service.submit(hit) }
+                                Button("Show in Finder") { service.reveal(hit) }
+                            }
+                            if hit.kind == .calculator {
+                                Button("Copy Result") { service.submit(hit) }
+                            }
+                        }
+                        .onTapGesture {
+                            if hit.kind == .history {
+                                service.query = hit.title
+                                service.search(hit.title)
+                                fieldFocused = true
+                            }
+                        }
+                }
+                .listStyle(.inset)
+                .overlay(alignment: .bottom) {
+                    Text("Double-click to open · Right-click for Finder actions")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 6)
+                }
             }
         }
-        .frame(minWidth: 380, minHeight: 420)
+        .frame(minWidth: 620, minHeight: 520)
         .onAppear {
             service.search(service.query)
+            fieldFocused = true
         }
+    }
+
+    private var resultSummary: String {
+        let count = service.results.filter { $0.kind != .history }.count
+        return count == 1 ? "1 result" : "\(count) results"
     }
 
     private func submitFirst() {
@@ -209,5 +261,59 @@ struct SpotlightPanelView: View {
         } else {
             service.remember(service.query)
         }
+    }
+}
+
+private struct SearchResultRow: View {
+    let hit: SearchHit
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(nsImage: icon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 32, height: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(hit.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                Text(hit.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(kindLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if let modified = hit.modified {
+                    Text(modified, style: .date)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if let size = hit.size {
+                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(.vertical, 5)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(hit.title), \(kindLabel), \(hit.subtitle)")
+    }
+
+    private var icon: NSImage {
+        if let url = hit.url { return NSWorkspace.shared.icon(forFile: url.path) }
+        return NSImage(systemSymbolName: hit.kind == .history ? "clock" : "doc", accessibilityDescription: nil) ?? NSImage()
+    }
+
+    private var kindLabel: String {
+        if hit.kind == .history { return "Recent search" }
+        if hit.isDirectory { return "Folder" }
+        if hit.kind == .app { return "Application" }
+        if hit.kind == .calculator { return "Calculator" }
+        if hit.kind == .web { return "Web" }
+        return "File"
     }
 }

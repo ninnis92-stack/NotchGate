@@ -7,7 +7,6 @@ struct PomodoroWindowView: View {
     @Environment(PomodoroService.self) private var service
     @Environment(ThemeManager.self) private var theme
     @State private var durationDraft = ""
-    @State private var dragOrigin: CGPoint?
     @State private var appeared = false
     @FocusState private var editingTime: Bool
 
@@ -17,6 +16,8 @@ struct PomodoroWindowView: View {
             Text("Pomodoro")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.55))
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
             PomodoroAnalogClock(
                 progress: service.justFinished ? 1 : service.progress,
                 accent: service.justFinished ? Color(red: 0.45, green: 0.92, blue: 0.62) : theme.accent
@@ -44,6 +45,10 @@ struct PomodoroWindowView: View {
                     .foregroundStyle(.white)
                     .monospacedDigit()
                     .focused($editingTime)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
                     .onSubmit {
                         service.applyDuration(durationDraft)
                         durationDraft = service.display
@@ -86,7 +91,6 @@ struct PomodoroWindowView: View {
         .animation(motion.appearAnimation, value: appeared)
         .animation(motion.fadeAnimation, value: service.justFinished)
         .animation(motion.fadeAnimation, value: service.isActive)
-        .gesture(windowDrag)
         .onAppear {
             durationDraft = service.display
             appeared = true
@@ -96,24 +100,6 @@ struct PomodoroWindowView: View {
         }
     }
 
-    private var windowDrag: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                guard let window = NSApp.windows.first(where: { $0.title == "Pomodoro" }) else { return }
-                if dragOrigin == nil {
-                    dragOrigin = window.frame.origin
-                }
-                guard let start = dragOrigin else { return }
-                window.setFrameOrigin(NSPoint(
-                    x: start.x + value.translation.width,
-                    y: start.y - value.translation.height
-                ))
-            }
-            .onEnded { _ in
-                dragOrigin = nil
-                PomodoroWindowManager.shared.persistPosition()
-            }
-    }
 }
 
 private struct PomodoroControlStyle: ButtonStyle {

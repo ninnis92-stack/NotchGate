@@ -1,7 +1,7 @@
 import CoreLocation
 import SwiftUI
 
-struct DayForecast: Equatable, Identifiable {
+struct DayForecast: Codable, Equatable, Identifiable {
     var id: Date { date }
     let date: Date
     let high: Double
@@ -9,7 +9,7 @@ struct DayForecast: Equatable, Identifiable {
     let symbol: String
 }
 
-struct WeatherSnapshot: Equatable {
+struct WeatherSnapshot: Codable, Equatable {
     let temperature: Double
     let condition: String
     let symbol: String
@@ -17,9 +17,11 @@ struct WeatherSnapshot: Equatable {
     let high: Double?
     let low: Double?
     let days: [DayForecast]
+    let updatedAt: Date
 }
 
 @Observable
+@MainActor
 final class WeatherService: NSObject, CLLocationManagerDelegate {
     var snapshot: WeatherSnapshot?
     var statusText = "Locating…"
@@ -28,11 +30,18 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
     private var started = false
     private var lastLocation: CLLocation?
     private var refreshTimer: Timer?
+    private var fetchGeneration = 0
+    private let cacheKey = "notch.weather.snapshot"
 
     override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyKilometer
+        if let data = UserDefaults.standard.data(forKey: cacheKey),
+           let cached = try? JSONDecoder().decode(WeatherSnapshot.self, from: data) {
+            snapshot = cached
+            statusText = "Using last update"
+        }
     }
 
     var needsLocationPermission: Bool {
@@ -51,22 +60,27 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
         NSWorkspace.shared.open(url)
     }
 
-    func start() {
+    func start(promptForPermission: Bool = false) {
         guard !started else { return }
         started = true
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            if let location = self.lastLocation {
-                Task { await self.fetch(from: location) }
-            } else if self.hasLocationAuthorization {
-                self.manager.requestLocation()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let location = self.lastLocation {
+                    await self.fetch(from: location)
+                } else if self.hasLocationAuthorization {
+                    self.manager.requestLocation()
+                }
             }
         }
         if let refreshTimer {
             RunLoop.main.add(refreshTimer, forMode: .common)
         }
         requestLocationIfAllowed()
+        if promptForPermission && needsLocationPermission && !locationAccessDenied {
+            requestAccessFromUser()
+        }
     }
 
     func refresh() {
@@ -125,11 +139,20 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
-        lastLocation = location
-        Task { await fetch(from: location) }
+        // Weather only needs an approximate area. Keep the location sent to
+        // Open-Meteo and the geocoder to roughly 1 km precision.
+        let coordinate = location.coordinate
+        let approximate = CLLocation(
+            latitude: (coordinate.latitude * 100).rounded() / 100,
+            longitude: (coordinate.longitude * 100).rounded() / 100
+        )
+        lastLocation = approximate
+        Task { await fetch(from: approximate) }
     }
 
     private func fetch(from location: CLLocation) async {
+        fetchGeneration += 1
+        let generation = fetchGeneration
         var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")
         components?.queryItems = [
             URLQueryItem(name: "latitude", value: String(location.coordinate.latitude)),
@@ -143,10 +166,15 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
         guard let url = components?.url else { return }
 
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
             let decoded = try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
             let code = decoded.current.weather_code
             let place = await reverseGeocode(location)
+            guard generation == fetchGeneration else { return }
             let days = decoded.daily.map { daily -> [DayForecast] in
                 zip(daily.time.indices, daily.time).compactMap { index, day in
                     guard daily.weather_code.indices.contains(index),
@@ -172,10 +200,15 @@ final class WeatherService: NSObject, CLLocationManagerDelegate {
                 location: place,
                 high: days.first?.high,
                 low: days.first?.low,
-                days: days
+                days: days,
+                updatedAt: Date()
             )
+            if let data = try? JSONEncoder().encode(snapshot) {
+                UserDefaults.standard.set(data, forKey: cacheKey)
+            }
+            statusText = "Updated just now"
         } catch {
-            statusText = "Weather unavailable"
+            statusText = snapshot == nil ? "Weather unavailable" : "Using last update"
         }
     }
 
@@ -274,18 +307,12 @@ struct WeatherWidget: View {
                     .minimumScaleFactor(0.85)
                     .layoutPriority(0)
                 Spacer(minLength: 8)
-                Button {
-                    layout.temperatureUnit.toggle()
-                } label: {
-                    Text(layout.temperatureUnit.formatted(snapshot.temperature))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .buttonStyle(.plain)
-                .help("Switch \(layout.temperatureUnit == .celsius ? "to Fahrenheit" : "to Celsius")")
+                Text(layout.temperatureUnit.formatted(snapshot.temperature))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 .layoutPriority(2)
                 Text(snapshot.condition)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
@@ -313,9 +340,6 @@ struct WeatherWidget: View {
         .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32)
         .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .onTapGesture {
-            service.refresh()
-        }
-        .help(service.snapshot == nil ? "Set up Weather" : "Refresh weather")
+        .help("Open Weather details")
     }
 }

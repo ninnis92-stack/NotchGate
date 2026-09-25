@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 enum MenuBarShortcuts {
     static func openWiFi() {
         if open("x-apple.systempreferences:com.apple.wifi-settings-extension") { return }
@@ -13,8 +14,12 @@ enum MenuBarShortcuts {
     }
 
     static func openControlCenter() {
-        let url = URL(fileURLWithPath: "/System/Library/CoreServices/ControlCenter.app")
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        // ControlCenter.app is an agent without a user-facing window, so
+        // launching its bundle does not display the popover. Use Apple's
+        // public System Settings URL instead, with a compatible fallback.
+        if open("x-apple.systempreferences:com.apple.ControlCenter-Settings.extension") { return }
+        if open("x-apple.systempreferences:com.apple.ControlCenter-Settings") { return }
+        _ = NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
     }
 
     @discardableResult
@@ -27,6 +32,10 @@ enum MenuBarShortcuts {
 struct StatusStrip: View {
     var stats: SystemMonitor
     var compact: Bool = false
+    /// Compact status chips are rendered inside a shoulder toggle. Keep them
+    /// non-interactive there so the shoulder owns the click; the full strip
+    /// in the status flyout keeps the real control actions.
+    var interactive: Bool = true
 
     @Environment(NotchCustomization.self) private var layout
 
@@ -89,21 +98,32 @@ struct StatusStrip: View {
         return items
     }
 
-    private func stripButton(_ symbol: String, label: String, tint: Color?, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: compact ? 11 : 12, weight: .semibold))
-                .foregroundStyle(tint ?? Color.white.opacity(0.9))
-                .frame(maxWidth: compact ? nil : .infinity)
-                .frame(height: compact ? 16 : 24)
-                .contentShape(Rectangle())
+    private func stripButton(_ symbol: String, label: String, tint: Color?, action: @escaping @MainActor () -> Void) -> some View {
+        Group {
+            if interactive {
+                Button(action: action) {
+                    buttonLabel(symbol, tint: tint)
+                }
+                .buttonStyle(.plain)
+            } else {
+                buttonLabel(symbol, tint: tint)
+            }
         }
-        .buttonStyle(.plain)
         .help(label)
         .accessibilityLabel(label)
     }
+
+    private func buttonLabel(_ symbol: String, tint: Color?) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: compact ? 11 : 12, weight: .semibold))
+            .foregroundStyle(tint ?? Color.white.opacity(0.9))
+            .frame(maxWidth: compact ? nil : .infinity)
+            .frame(height: compact ? 16 : 24)
+            .contentShape(Rectangle())
+    }
 }
 
+@MainActor
 private struct StatusItem: Identifiable {
     let id: String
     let symbol: String

@@ -111,16 +111,18 @@ struct NotchGeometry: Equatable {
         frame(expanded: false)
     }
 
-    /// Full menu-bar strip. Hovering here reveals the island in Full Screen
-    /// without widening the expand hotspot.
+    /// Reveal only over NotchGate's collapsed footprint, including its shoulders.
+    /// Menu items elsewhere on the top bar must neither reveal nor keep it open.
+    /// Use the same global-coordinate geometry as island activation on all displays.
     var topBarRevealZone: NSRect {
-        let height = max(notchHeight, 24)
-        return NSRect(
-            x: screenFrame.minX,
-            y: screenFrame.maxY - height,
-            width: screenFrame.width,
-            height: height
-        )
+        closestActivationZone.intersection(screenFrame)
+    }
+
+    /// Auto-hide expansion target. The collapsed bar includes wide shoulder
+    /// controls, but those controls should not expand the full panel merely
+    /// because the pointer crossed their area.
+    var autoHideExpansionZone: NSRect {
+        notchRect.insetBy(dx: -8, dy: -4).intersection(screenFrame)
     }
 
     func holdZone(panelFrame: NSRect) -> NSRect {
@@ -162,7 +164,19 @@ struct NotchGeometry: Equatable {
 
     static func current() -> NotchGeometry {
         frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let screen = preferredScreen()
+        guard let screen = preferredScreen() else {
+            return NotchGeometry(
+                screenFrame: .zero,
+                notchMinX: 0,
+                notchWidth: 0,
+                notchHeight: 0,
+                hasNotch: false,
+                hidesCollapsedShoulders: false,
+                isImmersive: false,
+                isMenuBarHidden: false,
+                backingScale: 1
+            )
+        }
         let frame = screen.frame
         let display = MacHardware.displayID(screen)
         let immersive = isImmersive(screen)
@@ -254,7 +268,7 @@ struct NotchGeometry: Equatable {
 
     /// Follow the display under the pointer so a laptop + external setup
     /// sizes the island for that screen's camera (or a centered fake island).
-    private static func preferredScreen() -> NSScreen {
+    private static func preferredScreen() -> NSScreen? {
         let mouse = NSEvent.mouseLocation
         if let underMouse = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) {
             return underMouse
@@ -262,12 +276,11 @@ struct NotchGeometry: Equatable {
         if let builtIn = NSScreen.screens.first(where: { MacHardware.isBuiltIn($0) && hasCutout($0) }) {
             return builtIn
         }
-        if let notched = NSScreen.screens.first(where: hasCutout) {
+        if let notched = NSScreen.screens.first(where: { hasCutout($0) }) {
             return notched
         }
         return NSScreen.main
             ?? NSScreen.screens.first
-            ?? NSScreen.screens.first!
     }
 
     /// The camera housing is the gap between the two menu-bar auxiliary areas.

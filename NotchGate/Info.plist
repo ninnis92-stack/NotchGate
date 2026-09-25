@@ -10,5 +10,7 @@
 	<string>NotchGate uses your location to show local weather under the notch.</string>
 	<key>NSLocationUsageDescription</key>
 	<string>NotchGate uses your location to show local weather under the notch.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>NotchGate uses Music and Spotify automation only to show and control the current track.</string>
 </dict>
 </plist>

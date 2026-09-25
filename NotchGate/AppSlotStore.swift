@@ -338,6 +338,12 @@ final class AppSlotStore {
             hoveredSlot = nil
             return true
         }
+        if let url = PasteboardApps.applicationURL(from: sender.draggingPasteboard) {
+            drop(url: url, onto: index)
+            draggingIndex = nil
+            hoveredSlot = nil
+            return true
+        }
         return false
     }
 
@@ -345,6 +351,12 @@ final class AppSlotStore {
         guard slots.indices.contains(index) else { return false }
         if let source = sourceSlotIndex(from: pasteboard) {
             move(from: source, to: index)
+            draggingIndex = nil
+            hoveredSlot = nil
+            return true
+        }
+        if let url = PasteboardApps.applicationURL(from: pasteboard) {
+            drop(url: url, onto: index)
             draggingIndex = nil
             hoveredSlot = nil
             return true
@@ -372,7 +384,8 @@ final class AppSlotStore {
     }
 
     private static var supportDirectory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
             .appendingPathComponent("NotchGate", isDirectory: true)
     }
 
@@ -429,14 +442,33 @@ final class AppSlotStore {
 }
 
 enum PasteboardApps {
-    // Only internal slot reordering is a drag target. External files and URLs are not accepted.
+    // Internal slot reordering and installed application bundles are accepted.
     static let dragTypes: [NSPasteboard.PasteboardType] = [
-        NSPasteboard.PasteboardType(AppSlotStore.slotType)
+        NSPasteboard.PasteboardType(AppSlotStore.slotType),
+        .fileURL
     ]
 
     static func dropOperation(for sender: NSDraggingInfo) -> NSDragOperation {
-        guard sourceSlotIndex(from: sender.draggingPasteboard) != nil else { return [] }
-        return .move
+        if sourceSlotIndex(from: sender.draggingPasteboard) != nil { return .move }
+        if applicationURL(from: sender.draggingPasteboard) != nil { return .copy }
+        return []
+    }
+
+    static func applicationURL(from pasteboard: NSPasteboard) -> URL? {
+        let candidate: URL?
+        if let raw = pasteboard.string(forType: .fileURL) {
+            candidate = URL(string: raw)
+        } else if let object = pasteboard.readObjects(forClasses: [NSURL.self], options: nil)?.first as? NSURL {
+            candidate = object as URL
+        } else {
+            candidate = nil
+        }
+
+        guard let candidate,
+              let resolved = candidate.resolvedApplicationURL(),
+              resolved.pathExtension.caseInsensitiveCompare("app") == .orderedSame,
+              Bundle(url: resolved) != nil else { return nil }
+        return resolved
     }
 
     private static func sourceSlotIndex(from pasteboard: NSPasteboard) -> Int? {

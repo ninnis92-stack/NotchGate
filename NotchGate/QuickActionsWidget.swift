@@ -17,6 +17,10 @@ struct AppSlotsView: View {
 }
 
 final class AppSlotsRowView: NSView {
+    private var slotHitPadding: CGFloat {
+        // Expand into the gap, but stop at the midpoint so targets never overlap.
+        NotchCustomization.shared.appSlotStyle == .list ? 3 : 4
+    }
     var store: AppSlotStore?
     private var cells: [AppSlotCellView] = []
     private var signature = ""
@@ -51,7 +55,7 @@ final class AppSlotsRowView: NSView {
             return
         }
         for cell in cells {
-            cell.setHighlighted(store.hoveredSlot == cell.index)
+            cell.setDropHighlighted(store.hoveredSlot == cell.index)
         }
     }
 
@@ -92,7 +96,7 @@ final class AppSlotsRowView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
         guard bounds.contains(local) else { return nil }
-        for cell in cells.reversed() where cell.frame.contains(local) {
+        for cell in cells.reversed() where hitFrame(for: cell).contains(local) {
             return cell
         }
         return self
@@ -100,7 +104,7 @@ final class AppSlotsRowView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
-        pressedCell = cells.first(where: { $0.frame.contains(local) })
+        pressedCell = cells.first(where: { hitFrame(for: $0).contains(local) })
         pressedCell?.mouseDown(with: event)
     }
 
@@ -122,22 +126,22 @@ final class AppSlotsRowView: NSView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         highlight(sender)
-        return .move
+        return PasteboardApps.dropOperation(for: sender)
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         highlight(sender)
-        return .move
+        return PasteboardApps.dropOperation(for: sender)
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         store?.hoveredSlot = nil
-        for cell in cells { cell.setHighlighted(false) }
+        for cell in cells { cell.setDropHighlighted(false) }
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
         store?.hoveredSlot = nil
-        for cell in cells { cell.setHighlighted(false) }
+        for cell in cells { cell.setDropHighlighted(false) }
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { true }
@@ -172,7 +176,7 @@ final class AppSlotsRowView: NSView {
         let index = slotIndex(for: sender)
         store?.hoveredSlot = index
         for cell in cells {
-            cell.setHighlighted(cell.index == index)
+            cell.setDropHighlighted(cell.index == index)
         }
     }
 
@@ -181,13 +185,17 @@ final class AppSlotsRowView: NSView {
     }
 
     func slotIndex(atLocalPoint point: NSPoint) -> Int {
-        if let cell = cells.first(where: { $0.frame.contains(point) }) {
+        if let cell = cells.first(where: { hitFrame(for: $0).contains(point) }) {
             return cell.index
         }
         return cells.min { lhs, rhs in
             hypot(lhs.frame.midX - point.x, lhs.frame.midY - point.y)
                 < hypot(rhs.frame.midX - point.x, rhs.frame.midY - point.y)
         }?.index ?? 0
+    }
+
+    private func hitFrame(for cell: AppSlotCellView) -> NSRect {
+        cell.frame.insetBy(dx: -slotHitPadding, dy: -slotHitPadding)
     }
 }
 
@@ -224,6 +232,8 @@ final class AppSlotCellView: NSView, NSDraggingSource {
     private var tracking: NSTrackingArea?
     private var mouseDownPoint: NSPoint?
     private var isDraggingSlot = false
+    private var isPointerHighlighted = false
+    private var isDropHighlighted = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -278,7 +288,7 @@ final class AppSlotCellView: NSView, NSDraggingSource {
         iconView.image = icon
         iconView.isEnabled = true
         nameField.stringValue = app?.displayName ?? ""
-        setHighlighted(highlighted)
+        setDropHighlighted(highlighted)
         if let app {
             toolTip = app.isInstalled ? app.displayName : "\(app.displayName) isn’t installed"
         } else {
@@ -287,7 +297,13 @@ final class AppSlotCellView: NSView, NSDraggingSource {
         needsLayout = true
     }
 
-    func setHighlighted(_ highlighted: Bool) {
+    func setDropHighlighted(_ highlighted: Bool) {
+        isDropHighlighted = highlighted
+        renderHighlight()
+    }
+
+    private func renderHighlight() {
+        let highlighted = isPointerHighlighted || isDropHighlighted
         layer?.backgroundColor = NSColor.white.withAlphaComponent(highlighted ? 0.16 : 0.07).cgColor
         layer?.borderColor = NSColor.white.withAlphaComponent(highlighted ? 0.5 : 0.12).cgColor
     }
@@ -335,11 +351,13 @@ final class AppSlotCellView: NSView, NSDraggingSource {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        setHighlighted(true)
+        isPointerHighlighted = true
+        renderHighlight()
     }
 
     override func mouseExited(with event: NSEvent) {
-        setHighlighted(false)
+        isPointerHighlighted = false
+        renderHighlight()
     }
 
     override func mouseDown(with event: NSEvent) {

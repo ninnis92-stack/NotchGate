@@ -59,19 +59,23 @@ final class LicenseManager {
 
     private(set) var isPro = false
     private(set) var product: Product?
-    private(set) var displayPrice = "$9.99"
+    private(set) var displayPrice = "$5.99"
     private(set) var isPurchasing = false
     private(set) var isRestoring = false
     private(set) var isStoreAvailable = true
     private(set) var statusMessage: String?
 
     private var updatesTask: Task<Void, Never>?
+    private var hasStarted = false
 
     private init() {
         isPro = Self.resolvedPro(false)
     }
 
     func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
+
         // StoreKit is authoritative in Release. Do not trust a locally cached
         // entitlement, which could survive a refund or revocation.
         isPro = Self.resolvedPro(false)
@@ -91,10 +95,18 @@ final class LicenseManager {
 
         isPurchasing = true
         UtilityWindows.prepareForStoreKit()
-        defer { isPurchasing = false }
+        defer {
+            isPurchasing = false
+            // StoreKit owns the authentication sheet. Once it dismisses,
+            // return focus to the NotchGate window so the result is visible.
+            UtilityWindows.prepareForStoreKit()
+        }
 
         do {
-            let result = try await product.purchase()
+            // Give AppKit one turn to finish activating the regular utility
+            // window before StoreKit presents its system purchase sheet.
+            await Task.yield()
+            let result = try await purchaseWithTimeout(product)
             switch result {
             case .success(let verification):
                 let transaction = try checkVerified(verification)
@@ -102,7 +114,7 @@ final class LicenseManager {
                 await transaction.finish()
                 statusMessage = "NotchGate Pro is unlocked. Thank you."
             case .userCancelled:
-                break
+                statusMessage = "Purchase cancelled. You can try again or use Restore Purchases."
             case .pending:
                 statusMessage = "This purchase is pending approval."
             @unknown default:
@@ -113,11 +125,34 @@ final class LicenseManager {
         }
     }
 
+    private func purchaseWithTimeout(_ product: Product) async throws -> Product.PurchaseResult {
+        try await withThrowingTaskGroup(of: Product.PurchaseResult.self) { group in
+            group.addTask {
+                try await product.purchase()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+                throw PurchaseFlowError.timedOut
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw PurchaseFlowError.noResult
+            }
+            return result
+        }
+    }
+
     func restorePurchases() async {
         statusMessage = nil
         isRestoring = true
         UtilityWindows.prepareForStoreKit()
-        defer { isRestoring = false }
+        defer {
+            isRestoring = false
+            // AppStore.sync() may present an Apple-owned sign-in prompt.
+            // Re-raise our utility window after the prompt completes so the
+            // user can immediately see the restore result.
+            UtilityWindows.prepareForStoreKit()
+        }
 
         do {
             try await AppStore.sync()
@@ -207,6 +242,20 @@ final class LicenseManager {
     }
 }
 
+private enum PurchaseFlowError: LocalizedError {
+    case timedOut
+    case noResult
+
+    var errorDescription: String? {
+        switch self {
+        case .timedOut:
+            return "The purchase sheet did not respond. Check your Apple ID sandbox sign-in and try again."
+        case .noResult:
+            return "The purchase did not return a result. Try again or use Restore Purchases."
+        }
+    }
+}
+
 enum KeychainLicense {
     private static let service = "com.notchlens.pro.license"
     private static let account = "notchlens-pro"
@@ -260,14 +309,77 @@ enum Persistence {
 
 @MainActor
 enum UtilityWindows {
+    enum PopupQuadrant: CaseIterable {
+        case topLeft, topRight, bottomLeft, bottomRight
+    }
+
+    /// Positions a utility window in one of four predictable screen quadrants.
+    /// Existing NotchGate windows are treated as obstacles so opening another
+    /// popup does not put it directly underneath the previous one.
+    static func popupFrame(
+        screen: NSRect,
+        size: NSSize,
+        occupied: [NSRect],
+        anchor: NSRect? = nil,
+        margin: CGFloat = 24
+    ) -> (frame: NSRect, quadrant: PopupQuadrant) {
+        let area = screen.insetBy(dx: margin, dy: margin)
+        let halfWidth = area.width / 2
+        let halfHeight = area.height / 2
+        let candidates: [(PopupQuadrant, NSRect)] = [
+            (.topLeft, NSRect(x: area.minX, y: area.midY, width: halfWidth, height: halfHeight)),
+            (.topRight, NSRect(x: area.midX, y: area.midY, width: halfWidth, height: halfHeight)),
+            (.bottomLeft, NSRect(x: area.minX, y: area.minY, width: halfWidth, height: halfHeight)),
+            (.bottomRight, NSRect(x: area.midX, y: area.minY, width: halfWidth, height: halfHeight))
+        ].map { quadrant, region in
+            let x = region.midX - size.width / 2
+            let y = region.midY - size.height / 2
+            return (quadrant, NSRect(
+                x: min(max(x, area.minX), area.maxX - size.width),
+                y: min(max(y, area.minY), area.maxY - size.height),
+                width: size.width,
+                height: size.height
+            ))
+        }
+
+        func overlap(_ lhs: NSRect, _ rhs: NSRect) -> CGFloat {
+            let intersection = lhs.intersection(rhs)
+            guard !intersection.isNull else { return 0 }
+            return intersection.width * intersection.height
+        }
+
+        let ranked = candidates.enumerated().map { index, candidate in
+            let obstacleCost = occupied.reduce(CGFloat.zero) { $0 + overlap(candidate.1, $1) }
+            let anchorCost = anchor.map { overlap(candidate.1, $0) * 2 } ?? 0
+            return (index, candidate, obstacleCost + anchorCost)
+        }.sorted { lhs, rhs in
+            if lhs.2 != rhs.2 { return lhs.2 < rhs.2 }
+            return lhs.0 < rhs.0
+        }
+        return (frame: ranked[0].1.1, quadrant: ranked[0].1.0)
+    }
+
     static let blockingChanged = Notification.Name("notchgate.utilityBlockingChanged")
 
     /// Above the notch overlay so Settings/Pro remain usable.
     static let windowLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.popUpMenuWindow)) + 2)
+    static let utilityCollectionBehavior: NSWindow.CollectionBehavior = [
+        .canJoinAllApplications,
+        .canJoinAllSpaces,
+        .fullScreenAuxiliary,
+        .ignoresCycle
+    ]
 
     private static var pricingWindow: NSWindow?
     private static var settingsWindow: NSWindow?
     private static var lastSettingsToggle = Date.distantPast
+    private static var isPostingBlockingChange = false
+
+    private static let utilityTitles: Set<String> = [
+        "NotchGate Settings", "NotchGate Pro", "Search", "Pomodoro",
+        "System Load", "Processor", "Memory", "Battery", "Disk",
+        "Network", "Calendar", "Weather", "Status"
+    ]
 
     static var folderPanelParent: NSWindow? {
         if settingsWindow?.isVisible == true { return settingsWindow }
@@ -276,14 +388,9 @@ enum UtilityWindows {
     }
 
     static var isBlockingIsland: Bool {
-        pricingWindow?.isVisible == true
-            || settingsWindow?.isVisible == true
-            || NSApp.windows.contains { window in
-                window.isVisible && (
-                    window.title == "NotchGate Settings"
-                        || window.title == "NotchGate Pro"
-                )
-            }
+        NSApp.windows.contains { window in
+            window.isVisible && utilityTitles.contains(window.title)
+        }
     }
 
     static func keepAboveOverlay() {
@@ -311,8 +418,23 @@ enum UtilityWindows {
     }
 
     static func prepareForStoreKit() {
+        let window = pricingWindow?.isVisible == true ? pricingWindow : settingsWindow
+        guard let window, window.isVisible else { return }
+        raiseUtilityWindow(window)
+    }
+
+    /// Make a user-facing utility window visible above other apps and Spaces.
+    /// This is intentionally shared by every popup so the interaction model is
+    /// consistent whether it was opened from the shoulder, menu bar, or a
+    /// keyboard shortcut.
+    static func raiseUtilityWindow(_ window: NSWindow) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        window.level = windowLevel
+        window.collectionBehavior = utilityCollectionBehavior
+        window.hidesOnDeactivate = false
+        window.orderFrontRegardless()
+        window.makeKey()
     }
 
     static func restoreAccessoryIfIdle() {
@@ -323,6 +445,12 @@ enum UtilityWindows {
     }
 
     static func postBlockingChanged() {
+        // Window dismissal can synchronously trigger another state change
+        // notification. Do not allow NotificationCenter delivery to re-enter
+        // itself through the overlay's collapse path.
+        guard !isPostingBlockingChange else { return }
+        isPostingBlockingChange = true
+        defer { isPostingBlockingChange = false }
         NotificationCenter.default.post(name: blockingChanged, object: nil)
     }
 
@@ -377,9 +505,9 @@ enum UtilityWindows {
             NSApp.activate(ignoringOtherApps: true)
         }
         if let existing {
-            existing.level = windowLevel
             existing.setContentSize(size)
-            existing.makeKeyAndOrderFront(nil)
+            place(existing, size: size)
+            raiseUtilityWindow(existing)
             return existing
         }
         let window = NSWindow(
@@ -390,11 +518,9 @@ enum UtilityWindows {
         )
         window.title = title
         window.isReleasedWhenClosed = false
-        window.level = windowLevel
-        window.hidesOnDeactivate = false
         window.contentView = NSHostingView(rootView: root)
-        window.center()
-        window.makeKeyAndOrderFront(nil)
+        place(window, size: size)
+        raiseUtilityWindow(window)
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
@@ -405,5 +531,26 @@ enum UtilityWindows {
             }
         }
         return window
+    }
+
+    private static func place(_ window: NSWindow, size: NSSize) {
+        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else { return }
+        let occupied = NSApp.windows.compactMap { candidate -> NSRect? in
+            guard candidate !== window,
+                  candidate.isVisible,
+                  utilityTitles.contains(candidate.title) else { return nil }
+            return candidate.frame
+        }
+        let anchor = NSApp.windows.first(where: { $0 is NotchPanel })?.frame
+        let choice = popupFrame(
+            screen: screen.visibleFrame,
+            size: size,
+            occupied: occupied,
+            anchor: anchor
+        )
+        window.setFrame(choice.frame, display: false)
     }
 }

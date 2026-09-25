@@ -12,22 +12,27 @@ Command center for the notch
 Always-on island at the camera: CPU, apps, Pomodoro, and HUDs. Unlock Pro once for calendar, weather, and live stats.
 
 ## Description
-NotchGate is a command center that lives on the MacBook camera housing. It stays visible in Full Screen. Hover the island to expand. Hover the top of the display only if something covered it.
+NotchGate is a command center that lives on the MacBook camera housing. It stays visible across Spaces and in Full Screen. Hover the island to expand it, or use the shoulder controls to open a feature without leaving your current app.
 
 Free
-• Collapsed island with glance widgets (CPU/memory, clock, Pomodoro, and more)
-• App slots and search
-• Pomodoro timer (analog clock, countdown, draggable window)
+• Collapsed island with CPU/memory, clock, status, and app shortcut controls
+• Pinned shortcuts for installed apps, with reorder and remove controls
+• Finder-style local search with This Mac, Files, and Apps scopes
+• Pomodoro timer with an analog clock, countdown, and standard window
 • Volume and brightness HUD under the island
+• Music controls that auto-detect Music.app or Spotify
+• User-selected file shelf with Finder access and removal of saved references
+• Privacy-first local operation with no account required
 
-NotchGate Pro — $9.99 one time, no subscription
+NotchGate Pro — $5.99 one time, no subscription
+• AirDrop sharing from the file shelf
 • Calendar next event
 • Local weather
 • Live network and system meters
 • Disk and battery meters
-• Accent themes (Midnight, Aurora, Ember, Glacier)
+• Accent themes: Midnight, Aurora, Ember, and Glacier
 
-NotchGate is built as a utility overlay, not a Dynamic Island clone. Search is ⌘⇧F.
+NotchGate is built as a focused utility overlay, not a Dynamic Island clone. Search is ⌘⇧F. Calendar and weather ask for macOS permission only when you use those features.
 
 ## Keywords (100 characters max, comma-separated)
 notch,hud,overlay,pomodoro,cpu,menu bar,macbook,timer,calendar,weather
@@ -63,5 +68,5 @@ NotchLens.NotchGate
 ## IAP
 Product ID: com.notchlens.pro  
 Type: Non-Consumable  
-US price: $9.99  
+US price: $5.99
 Display name: NotchGate Pro

@@ -8,6 +8,20 @@ struct SearchHit: Identifiable, Equatable {
     let subtitle: String
     let url: URL?
     let kind: Kind
+    let isDirectory: Bool
+    let size: Int64?
+    let modified: Date?
+
+    init(id: String, title: String, subtitle: String, url: URL?, kind: Kind, isDirectory: Bool = false, size: Int64? = nil, modified: Date? = nil) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.url = url
+        self.kind = kind
+        self.isDirectory = isDirectory
+        self.size = size
+        self.modified = modified
+    }
 
     enum Kind {
         case file
@@ -51,6 +65,16 @@ final class SearchService {
         SpotlightPanelController.shared.show(service: self)
     }
 
+    func toggle() {
+        if SpotlightPanelController.shared.isVisible {
+            isOpen = false
+            SpotlightPanelController.shared.hide()
+        } else {
+            start()
+            open()
+        }
+    }
+
     func search(_ text: String) {
         query = text
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -69,6 +93,11 @@ final class SearchService {
         runSpotlight(trimmed)
     }
 
+    func setScope(_ scope: SearchScope) {
+        NotchCustomization.shared.searchScope = scope
+        search(query)
+    }
+
     func submit(_ hit: SearchHit) {
         remember(query)
         switch hit.kind {
@@ -84,6 +113,11 @@ final class SearchService {
         }
         isOpen = false
         SpotlightPanelController.shared.hide()
+    }
+
+    func reveal(_ hit: SearchHit) {
+        guard let url = hit.url else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     func remember(_ text: String) {
@@ -108,6 +142,8 @@ final class SearchService {
         let scope = NotchCustomization.shared.searchScope
         let pattern = "*\(text)*"
         let nameMatch = NSPredicate(format: "kMDItemDisplayName LIKE[cd] %@", pattern)
+        let contentMatch = NSPredicate(format: "kMDItemTextContent LIKE[cd] %@", pattern)
+        let finderMatch = NSCompoundPredicate(orPredicateWithSubpredicates: [nameMatch, contentMatch])
         if scope == .apps {
             metadata.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
                 NSPredicate(format: "kMDItemContentTypeTree == %@", "com.apple.application-bundle"),
@@ -116,10 +152,10 @@ final class SearchService {
         } else if scope == .files {
             metadata.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
                 NSPredicate(format: "kMDItemContentTypeTree != %@", "com.apple.application-bundle"),
-                nameMatch
+                finderMatch
             ])
         } else {
-            metadata.predicate = nameMatch
+            metadata.predicate = finderMatch
         }
         metadata.start()
     }
@@ -131,14 +167,18 @@ final class SearchService {
             object: metadata,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.ingestQuery() }
+            Task { @MainActor [weak self] in
+                self?.ingestQuery()
+            }
         }
         let updated = NotificationCenter.default.addObserver(
             forName: .NSMetadataQueryDidUpdate,
             object: metadata,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.ingestQuery() }
+            Task { @MainActor [weak self] in
+                self?.ingestQuery()
+            }
         }
         observers = [finished, updated]
     }
@@ -157,13 +197,17 @@ final class SearchService {
             let isApp = url.pathExtension.lowercased() == "app"
             if scope == .apps, !isApp { continue }
             if scope == .files, isApp { continue }
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
             hits.append(
                 SearchHit(
                     id: path,
                     title: name,
                     subtitle: url.deletingLastPathComponent().path,
                     url: url,
-                    kind: isApp ? .app : .file
+                    kind: isApp ? .app : .file,
+                    isDirectory: values?.isDirectory ?? false,
+                    size: values?.fileSize.map(Int64.init),
+                    modified: values?.contentModificationDate
                 )
             )
         }
@@ -179,13 +223,11 @@ final class SearchService {
     }
 
     private func evaluateCalculator(_ text: String) -> SearchHit? {
-        let allowed = CharacterSet(charactersIn: "0123456789.+-*/()% ")
-        guard text.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
-        let expression = NSExpression(format: text)
-        guard let number = expression.expressionValue(with: nil, context: nil) as? NSNumber else { return nil }
+        var parser = CalculatorParser(text)
+        guard let value = parser.parse() else { return nil }
         return SearchHit(
             id: "calc-\(text)",
-            title: number.stringValue,
+            title: value.formatted(.number.precision(.fractionLength(0...8))),
             subtitle: "Calculator",
             url: nil,
             kind: .calculator
@@ -207,7 +249,8 @@ final class SearchService {
     }
 
     private var historyURL: URL {
-        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let folder = (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
             .appendingPathComponent("NotchGate/SavedSearches", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appendingPathComponent("history.json")
@@ -222,5 +265,102 @@ final class SearchService {
     private func saveHistory() {
         guard let data = try? JSONEncoder().encode(history) else { return }
         try? data.write(to: historyURL, options: .atomic)
+    }
+}
+
+private struct CalculatorParser {
+    private let characters: [Character]
+    private var index = 0
+
+    init(_ text: String) {
+        characters = Array(text)
+    }
+
+    mutating func parse() -> Double? {
+        guard let value = parseExpression() else { return nil }
+        skipWhitespace()
+        guard index == characters.count, value.isFinite else { return nil }
+        return value
+    }
+
+    private mutating func parseExpression() -> Double? {
+        guard var value = parseTerm() else { return nil }
+        while true {
+            skipWhitespace()
+            guard let operation = current else { return value }
+            guard operation == "+" || operation == "-" else { return value }
+            index += 1
+            guard let rhs = parseTerm() else { return nil }
+            value = operation == "+" ? value + rhs : value - rhs
+            guard value.isFinite else { return nil }
+        }
+    }
+
+    private mutating func parseTerm() -> Double? {
+        guard var value = parseFactor() else { return nil }
+        while true {
+            skipWhitespace()
+            guard let operation = current else { return value }
+            guard operation == "*" || operation == "/" || operation == "%" else { return value }
+            index += 1
+            guard let rhs = parseFactor(), rhs != 0 else { return nil }
+            switch operation {
+            case "*": value *= rhs
+            case "/": value /= rhs
+            default: value.formTruncatingRemainder(dividingBy: rhs)
+            }
+            guard value.isFinite else { return nil }
+        }
+    }
+
+    private mutating func parseFactor() -> Double? {
+        skipWhitespace()
+        if current == "+" || current == "-" {
+            let negative = current == "-"
+            index += 1
+            guard let value = parseFactor() else { return nil }
+            return negative ? -value : value
+        }
+        return parsePrimary()
+    }
+
+    private mutating func parsePrimary() -> Double? {
+        skipWhitespace()
+        if current == "(" {
+            index += 1
+            guard let value = parseExpression() else { return nil }
+            skipWhitespace()
+            guard current == ")" else { return nil }
+            index += 1
+            return value
+        }
+
+        let start = index
+        var hasDigit = false
+        var hasDecimal = false
+        while let character = current {
+            if character.isNumber {
+                hasDigit = true
+                index += 1
+            } else if character == ".", !hasDecimal {
+                hasDecimal = true
+                index += 1
+            } else {
+                break
+            }
+        }
+        guard hasDigit else { return nil }
+        return Double(String(characters[start..<index]))
+    }
+
+    private var current: Character? {
+        guard characters.indices.contains(index) else { return nil }
+        return characters[index]
+    }
+
+    private mutating func skipWhitespace() {
+        while current?.isWhitespace == true {
+            index += 1
+        }
     }
 }

@@ -15,7 +15,7 @@ This is a click guide, not an in-app script. Do not add a `.swift` helper to the
 1. Monetization → In-App Purchases → + → Non-Consumable
 2. Reference name: NotchGate Pro
 3. Product ID: **`com.notchlens.pro`** (must match `LicenseManager.productID`)
-4. Price: United States $9.99
+4. Price: United States $5.99
 5. Localization en-US:
    - Display name: NotchGate Pro
    - Description: One-time unlock for calendar, weather, live network, disk and battery meters, and accent themes.
@@ -30,4 +30,4 @@ This is a click guide, not an in-app script. Do not add a `.swift` helper to the
 6. Replacement build 2 (capture features removed): `/tmp/NotchGate-1.0-build2.xcarchive`. Upload it, select build 2, attach IAP `com.notchlens.pro`, and resubmit for review.
 
 ## Review setup
-When Pro is active, the app requests Calendar and Location permission only after the user interacts with the relevant widget. No login or sample files are required. There are no secondary widget dropdowns or automation permissions.
+When Pro is active, the app requests Calendar and Location permission only after the user interacts with the relevant widget. No login or sample files are required. Music controls may request Apple Events permission when the user uses Music or Spotify controls; file sharing only operates on user-selected files.

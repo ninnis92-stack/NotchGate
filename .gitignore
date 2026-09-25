@@ -1,8 +1,12 @@
 .DS_Store
+._*
 
 # Xcode and Swift build output
 DerivedData/
 build/
+Builds/
+*.xcarchive/
+*.pkg
 *.xcuserstate
 xcuserdata/
 

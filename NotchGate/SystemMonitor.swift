@@ -36,6 +36,7 @@ final class SystemMonitor {
     var uploadBytesPerSecond: Double = 0
     var downloadHistory: [Double] = []
     var uploadHistory: [Double] = []
+    var onRefresh: ((SystemMonitor) -> Void)?
 
     let coreCount = ProcessInfo.processInfo.activeProcessorCount
     private(set) var memoryTotalBytes = Double(ProcessInfo.processInfo.physicalMemory)
@@ -65,10 +66,7 @@ final class SystemMonitor {
         timer?.invalidate()
         refresh()
         let timer = Timer(timeInterval: clamped, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.refresh()
-            }
+            self?.refresh()
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -96,6 +94,7 @@ final class SystemMonitor {
         push(diskUsage, onto: &diskHistory, cap: historyCap)
         push(downloadBytesPerSecond, onto: &downloadHistory, cap: historyCap)
         push(uploadBytesPerSecond, onto: &uploadHistory, cap: historyCap)
+        onRefresh?(self)
     }
 
     private func push(_ value: Double, onto history: inout [Double], cap: Int) {

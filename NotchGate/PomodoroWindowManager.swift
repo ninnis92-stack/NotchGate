@@ -5,7 +5,7 @@ import SwiftUI
 final class PomodoroWindowManager: NSObject, NSWindowDelegate {
     static let shared = PomodoroWindowManager()
 
-    private var panel: NSPanel?
+    private var panel: NSWindow?
     private let originKey = "notch.pomodoro.origin"
 
     func toggle() {
@@ -25,7 +25,7 @@ final class PomodoroWindowManager: NSObject, NSWindowDelegate {
             panel.center()
         }
         panel.alphaValue = 0
-        panel.makeKeyAndOrderFront(nil)
+        UtilityWindows.raiseUtilityWindow(panel)
         self.panel = panel
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NotchAnimationManager.shared.expandDuration
@@ -43,6 +43,9 @@ final class PomodoroWindowManager: NSObject, NSWindowDelegate {
             panel.animator().alphaValue = 0
         } completionHandler: {
             panel.orderOut(nil)
+            Task { @MainActor in
+                UtilityWindows.restoreAccessoryIfIdle()
+            }
         }
     }
 
@@ -64,7 +67,7 @@ final class PomodoroWindowManager: NSObject, NSWindowDelegate {
         persistPosition()
     }
 
-    private func makePanel() -> NSPanel {
+    private func makePanel() -> NSWindow {
         if let panel { return panel }
         let hosting = NSHostingView(
             rootView: PomodoroWindowView()
@@ -73,21 +76,20 @@ final class PomodoroWindowManager: NSObject, NSWindowDelegate {
                 .environment(NotchCustomization.shared)
                 .environment(NotchAnimationManager.shared)
         )
-        let panel = NSPanel(
+        let panel = NSWindow(
             contentRect: NSRect(origin: .zero, size: PomodoroWindowView.panelSize),
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         panel.title = "Pomodoro"
         panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
+        panel.isOpaque = true
+        panel.backgroundColor = .windowBackgroundColor
         panel.hasShadow = true
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false
+        panel.minSize = PomodoroWindowView.panelSize
+        panel.maxSize = CGSize(width: 420, height: 520)
         panel.contentView = hosting
         panel.delegate = self
         return panel

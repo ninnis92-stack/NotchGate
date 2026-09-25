@@ -12,6 +12,12 @@ struct UpcomingEvent: Equatable, Identifiable {
     let calendarColor: Color
 }
 
+enum CalendarSelection {
+    static func nextEvent(from events: [UpcomingEvent], now: Date) -> UpcomingEvent? {
+        events.first { $0.end > now } ?? events.first
+    }
+}
+
 @Observable
 @MainActor
 final class CalendarService {
@@ -119,7 +125,6 @@ final class CalendarService {
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
         let mapped = store.events(matching: predicate)
             .sorted { lhs, rhs in
-                if lhs.isAllDay != rhs.isAllDay { return !lhs.isAllDay && rhs.isAllDay }
                 return lhs.startDate < rhs.startDate
             }
             .prefix(10)
@@ -137,8 +142,6 @@ final class CalendarService {
 
         upcoming = Array(mapped)
         let now = start
-        nextEvent = upcoming.first { !$0.isAllDay && $0.end > now }
-            ?? upcoming.first { $0.end > now }
-            ?? upcoming.first
+        nextEvent = CalendarSelection.nextEvent(from: upcoming, now: now)
     }
 }

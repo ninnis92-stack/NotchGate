@@ -57,6 +57,8 @@ struct SettingsView: View {
     @Environment(NotchCustomization.self) private var customization
     @State private var launchesAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
+    @State private var transferMessage: String?
+    @State private var requestingNotifications = false
 
     var body: some View {
         @Bindable var theme = themeManager
@@ -73,6 +75,8 @@ struct SettingsView: View {
                     appearance(theme: theme)
                 }
                 general
+                alerts
+                dataTools
                 licenseSection
             }
             .padding(22)
@@ -128,7 +132,18 @@ struct SettingsView: View {
     private func fullScreenBehavior(layout: NotchCustomization) -> some View {
         @Bindable var layout = layout
         return settingsGroup("Command center") {
-            Text("The island stays on every Space, including Full Screen. Hover the camera to drop the panel. Hover the top of the display to pull it forward if an app covered it.")
+            Toggle("Auto-hide NotchGate", isOn: $layout.autoHide)
+            Text("Auto-hide behavior")
+                .font(.headline)
+            Picker("Reveal mode", selection: $layout.autoHideRevealStyle) {
+                ForEach(AutoHideRevealStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .disabled(!layout.autoHide)
+            Text("Closed mode keeps the panel compact and shows a left-side expand control. Open mode expands when you hover the camera area. Move away to hide it.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("The island stays on every Space, including Full Screen. Hover the camera area to expand it. Hover the wider top bar to pull the compact bar forward without opening the panel.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Picker("How high it sits", selection: $layout.overlayLevel) {
@@ -205,7 +220,22 @@ struct SettingsView: View {
             }
             .toggleStyle(.switch)
             moduleRow("switch.2", "Status", "Wi‑Fi, battery, Control Center.", $layout.showStatusStrip)
-            moduleRow("timer", "Pomodoro", "Draggable timer window. Assign Pomodoro or Search to a shoulder.", $layout.showPomodoro)
+            moduleRow("timer", "Pomodoro", "Standard timer window. Assign Pomodoro to a shoulder.", $layout.showPomodoro)
+            moduleRow("music.note", "Music", "Control Music.app or Spotify from the island and see the current track.", $layout.showMusic)
+            MusicConnectionSettings()
+            .padding(.leading, 30)
+            if FileShelfStore.shared.isVisible {
+            moduleRow("tray.and.arrow.down", "File shelf — Pro", "Pro lets you add and open files and use AirDrop. Removing saved references is always available.", $layout.showFiles)
+            if !FileShelfStore.shared.items.isEmpty {
+                ForEach(FileShelfStore.shared.items) { item in
+                    Button("Remove \(item.name) from Shelf") { FileShelfStore.shared.remove(item) }
+                }
+            }
+            Text("In the file shelf panel, click the × beside a file to remove it from the shelf. The original file stays where it is.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 30)
+            }
             if license.isPro {
                 moduleRow("arrow.up.arrow.down", "Network", "Live upload and download.", $layout.showNetwork)
                 moduleRow("calendar", "Calendar", "Next event.", $layout.showCalendar)
@@ -236,7 +266,7 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             Toggle("Show names under icons", isOn: $layout.showAppLabels)
-            Text("Click a pinned app to open it. NotchGate does not capture or inspect app windows.")
+            Text("Click a pinned app to open it. Add one with Choose… or drag an installed app bundle into an empty slot. NotchGate does not capture or inspect app windows.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach(0..<AppSlotStore.slotCount, id: \.self) { index in
@@ -368,6 +398,61 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+            Divider()
+            Button("Quit NotchGate") {
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
+    private var alerts: some View {
+        @Bindable var preferences = NotificationPreferences.shared
+        return settingsGroup("Alerts") {
+            Text("Optional reminders stay on this Mac and are sent only when a threshold changes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Toggle("Low battery", isOn: $preferences.lowBatteryAlerts)
+                .onChange(of: preferences.lowBatteryAlerts) { _, enabled in
+                    requestNotificationsIfNeeded(enabled)
+                }
+            Toggle("Network disconnected", isOn: $preferences.networkAlerts)
+                .onChange(of: preferences.networkAlerts) { _, enabled in
+                    requestNotificationsIfNeeded(enabled)
+                }
+            if requestingNotifications {
+                ProgressView("Allowing notifications…")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var dataTools: some View {
+        settingsGroup("Data") {
+            Text("Move your NotchGate preferences between Macs with a user-selected JSON file.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button("Export Settings…") {
+                    transferMessage = SettingsTransfer.export()
+                }
+                Button("Import Settings…") {
+                    transferMessage = SettingsTransfer.import()
+                }
+            }
+            if let transferMessage {
+                Text(transferMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func requestNotificationsIfNeeded(_ enabled: Bool) {
+        guard enabled, !requestingNotifications else { return }
+        requestingNotifications = true
+        Task {
+            _ = await NotificationService.shared.requestAuthorizationIfNeeded()
+            requestingNotifications = false
         }
     }
 
@@ -403,8 +488,10 @@ struct SettingsView: View {
                 Text("NotchGate uses calendar, location, and now-playing only on this Mac. Search history stays on this Mac. Nothing is sold or sent to NotchLens except App Store receipt checks.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Link("Privacy Policy", destination: URL(string: "https://ninnis92-stack.github.io/notchgate-legal/")!)
-                    .font(.caption)
+                if let privacyURL = URL(string: "https://ninnis92-stack.github.io/notchgate-legal/") {
+                    Link("Privacy Policy", destination: privacyURL)
+                        .font(.caption)
+                }
             }
         }
     }
